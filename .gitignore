@@ -1,0 +1,9 @@
+bin/
+cover.out
+coverage.out
+coverage.html
+*.tmp
+.env
+.env.*
+*.swp
+.DS_Store
