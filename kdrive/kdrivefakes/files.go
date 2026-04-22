@@ -287,4 +287,3 @@ func (f *FilesFake) Move(ctx context.Context, fileID, destDirID int64) error {
 	}
 	return nil
 }
-

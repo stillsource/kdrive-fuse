@@ -100,7 +100,7 @@ func (c *Client) decodeJSON(ctx context.Context, method, endpoint string, body [
 	if err != nil {
 		return err
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // cleanup only
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
 		return scerr.Wrap(ErrServer,
 			scerr.WithDetail("decode response"),

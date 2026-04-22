@@ -86,7 +86,7 @@ func (s *FilesService) Download(ctx context.Context, fileID int64) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
-	defer rc.Close()
+	defer rc.Close() //nolint:errcheck // cleanup only
 	data, err := io.ReadAll(rc)
 	if err != nil {
 		return nil, scerr.Wrap(ErrServer,
@@ -197,7 +197,7 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 			scerr.CausedBy(err),
 		)
 	}
-	defer resp.Body.Close()
+	defer resp.Body.Close() //nolint:errcheck // cleanup only
 
 	if resp.StatusCode >= 400 {
 		return FileInfo{}, fromResponse(resp, "POST /upload")

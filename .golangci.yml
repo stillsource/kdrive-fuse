@@ -1,9 +1,11 @@
+version: "2"
+
 run:
   timeout: 5m
   tests: true
 
 linters:
-  disable-all: true
+  default: none
   enable:
     - errcheck
     - govet
@@ -11,18 +13,20 @@ linters:
     - staticcheck
     - unused
     - gocritic
-    - gofmt
-    - goimports
     - misspell
     - unconvert
+  exclusions:
+    paths:
+      - bin
+    rules:
+      - path: _test\.go
+        linters:
+          - errcheck
+      - path: cmd/
+        linters:
+          - errcheck
 
-issues:
-  exclude-dirs:
-    - bin
-  exclude-rules:
-    - path: _test\.go
-      linters:
-        - errcheck
-    - path: cmd/
-      linters:
-        - errcheck
+formatters:
+  enable:
+    - gofmt
+    - goimports
