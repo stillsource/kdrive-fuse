@@ -374,6 +374,25 @@ var _ = Describe("DirNode error paths via mount", func() {
 		Expect(fx.Fake.GetUploadCalls()).To(HaveLen(1))
 	})
 
+	It("Truncating rewrite uploads only the new bytes, not merged with old content", func() {
+		fake := baseFake() // hello.txt (id=10) holds "hello world" (11 bytes)
+		gotBody := make(chan string, 1)
+		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+			body, _ := io.ReadAll(in.Body)
+			gotBody <- string(body)
+			return kdrive.FileInfo{ID: 10, Name: in.Name, Size: int64(len(body))}, nil
+		}
+		fx := newMountFixture(fake)
+		Expect(os.WriteFile(
+			filepath.Join(fx.Dir, "hello.txt"),
+			[]byte("edited"), 0o644,
+		)).To(Succeed())
+		// Bug: O_TRUNC is delivered as Setattr(size=0) then Open without O_TRUNC,
+		// so Open re-seeds the old remote content and the short write leaves a
+		// stale tail -> body becomes "editedworld" instead of "edited".
+		Eventually(gotBody).Should(Receive(Equal("edited")))
+	})
+
 	It("removeChild with wrong type in list returns EISDIR/ENOTDIR", func() {
 		// covered by the two specs above; this entry keeps the contract explicit
 	})
