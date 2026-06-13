@@ -21,6 +21,9 @@ type FileNode struct {
 	fs.Inode
 	kdfs *KDriveFS
 	info kdrive.FileInfo
+
+	mu sync.Mutex
+	wh *writeHandle // active write handle, so a late Setattr(size) can truncate it
 }
 
 var _ fs.NodeGetattrer = (*FileNode)(nil)
@@ -41,6 +44,15 @@ func (f *FileNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut
 func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
 	if size, ok := in.GetSize(); ok {
 		f.info.Size = int64(size)
+		// The kernel delivers O_TRUNC as a path-based Setattr (no file handle)
+		// that can arrive *after* Open. Propagate the truncate to the active
+		// write handle so a short rewrite doesn't keep a stale tail.
+		f.mu.Lock()
+		wh := f.wh
+		f.mu.Unlock()
+		if wh != nil {
+			wh.truncateTo(int64(size))
+		}
 	}
 	out.Mode = 0o644 | syscall.S_IFREG
 	out.Size = uint64(f.info.Size)
@@ -78,13 +90,23 @@ func (f *FileNode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 	if err != nil {
 		return nil, 0, syscall.EIO
 	}
-	if !truncate && f.info.ID > 0 {
+	wh.node = f
+	// Seed the tempfile with current remote content only for a genuine partial
+	// write. When O_TRUNC is requested the kernel either drops f.info.Size to 0
+	// via a Setattr before Open (caught by the size guard here) or sends that
+	// Setattr after Open (caught by truncateTo) — either way we must not restore
+	// a stale tail under the freshly written bytes.
+	if !truncate && f.info.ID > 0 && f.info.Size > 0 {
 		rc, err := f.kdfs.Files.DownloadStream(ctx, f.info.ID, 0, 0)
 		if err == nil {
 			_, _ = io.Copy(wh.tmp, rc)
 			_ = rc.Close()
 		}
 	}
+	// Publish the handle only after seeding, so a late truncate can't race the copy.
+	f.mu.Lock()
+	f.wh = wh
+	f.mu.Unlock()
 	return wh, 0, 0
 }
 
@@ -159,8 +181,19 @@ type writeHandle struct {
 	name           string
 	tmp            *os.File
 	onUploaded     func(kdrive.FileInfo)
+	node           *FileNode // set by Open; lets a late Setattr truncate this handle
 	mu             sync.Mutex
 	uploaded       bool
+}
+
+// truncateTo resizes the buffered tempfile. The kernel may send a truncating
+// Setattr after Open, so this keeps the buffer in sync with the requested size.
+func (h *writeHandle) truncateTo(n int64) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.tmp != nil {
+		_ = h.tmp.Truncate(n)
+	}
 }
 
 var _ fs.FileWriter = (*writeHandle)(nil)
@@ -236,13 +269,22 @@ func (h *writeHandle) Flush(ctx context.Context) syscall.Errno {
 // Release removes the tempfile.
 func (h *writeHandle) Release(_ context.Context) syscall.Errno {
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	if h.tmp == nil {
+	tmp := h.tmp
+	h.tmp = nil
+	node := h.node
+	h.mu.Unlock()
+	if tmp == nil {
 		return 0
 	}
-	name := h.tmp.Name()
-	_ = h.tmp.Close()
+	name := tmp.Name()
+	_ = tmp.Close()
 	_ = os.Remove(name)
-	h.tmp = nil
+	if node != nil {
+		node.mu.Lock()
+		if node.wh == h {
+			node.wh = nil
+		}
+		node.mu.Unlock()
+	}
 	return 0
 }

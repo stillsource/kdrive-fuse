@@ -88,7 +88,7 @@ Cache invalidation is implicit: a remote mtime change produces a different cache
 
 1. `cp src ~/kDrive-vfs/dst` (new file) → `DirNode.Create` returns a `writeHandle` with `existingFileID=0`
 2. `echo > existing` → `FileNode.Open(O_WRONLY|O_TRUNC)` returns a `writeHandle` with `existingFileID=f.info.ID`
-3. Kernel calls `Setattr(size=0)` for truncate — accepted as no-op
+3. Kernel sends `Setattr(size=N)` for truncate — may arrive *before* `Open` (zeroes `f.info.Size`, so `Open` skips the seed) or *after* `Open` with no file handle (so it truncates the active `writeHandle`'s tempfile via the `FileNode.wh` back-reference). Both orders are handled so a short rewrite never keeps a stale tail.
 4. `Write(data, off)` → `WriteAt` on the tempfile
 5. `Flush` → compute xxh3, `Files.Upload(ctx, UploadInput{...})` → patch `FileNode.info` with the returned `FileInfo` → invalidate parent dir cache
 6. `Release` → close + remove the tempfile
