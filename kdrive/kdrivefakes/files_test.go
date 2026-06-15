@@ -10,9 +10,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 func TestKdrivefakes(t *testing.T) {
@@ -81,7 +81,7 @@ var _ = Describe("FilesFake", func() {
 		f.UploadResults = map[string]kdrivefakes.UploadResult{
 			"new.txt": {Info: domain.FileInfo{ID: 5, Name: "new.txt"}},
 		}
-		info, err := f.Upload(ctx, kdrive.UploadInput{
+		info, err := f.Upload(ctx, service.UploadInput{
 			ParentID: 1, Name: "new.txt",
 			Body: bytes.NewReader(nil), Size: 0,
 		})
@@ -94,7 +94,7 @@ var _ = Describe("FilesFake", func() {
 		f.UploadResults = map[string]kdrivefakes.UploadResult{
 			"id:42": {Info: domain.FileInfo{ID: 42}},
 		}
-		info, err := f.Upload(ctx, kdrive.UploadInput{
+		info, err := f.Upload(ctx, service.UploadInput{
 			ExistingFileID: 42, Body: bytes.NewReader(nil), Size: 0,
 		})
 		Expect(err).NotTo(HaveOccurred())
@@ -147,7 +147,7 @@ var _ = Describe("FilesFake snapshot getters", func() {
 		_ = f.Delete(ctx, 3)
 		_, _ = f.Rename(ctx, 4, "r")
 		_ = f.Move(ctx, 5, 6)
-		_, _ = f.Upload(ctx, kdrive.UploadInput{ParentID: 1, Name: "x", Body: bytes.NewReader(nil)})
+		_, _ = f.Upload(ctx, service.UploadInput{ParentID: 1, Name: "x", Body: bytes.NewReader(nil)})
 
 		Expect(f.GetListCalls()).To(HaveLen(1))
 		Expect(f.GetMkdirCalls()).To(HaveLen(1))

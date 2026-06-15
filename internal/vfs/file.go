@@ -15,6 +15,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 // FileNode represents a kDrive file.
@@ -276,7 +277,7 @@ func (h *writeHandle) commitLocked(ctx context.Context) syscall.Errno {
 		slog.Error("commit seek", "err", err)
 		return syscall.EIO
 	}
-	info, err := h.files.Upload(ctx, kdrive.UploadInput{
+	info, err := h.files.Upload(ctx, service.UploadInput{
 		ParentID:       h.parentID,
 		ExistingFileID: h.existingFileID,
 		Name:           h.name,

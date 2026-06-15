@@ -9,6 +9,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 // FilesFake implements kdrive.Files for tests.
@@ -20,7 +21,7 @@ type FilesFake struct {
 	StatStub           func(ctx context.Context, fileID int64) (domain.FileInfo, error)
 	DownloadStub       func(ctx context.Context, fileID int64) ([]byte, error)
 	DownloadStreamStub func(ctx context.Context, fileID, off, length int64) (io.ReadCloser, error)
-	UploadStub         func(ctx context.Context, in kdrive.UploadInput) (domain.FileInfo, error)
+	UploadStub         func(ctx context.Context, in service.UploadInput) (domain.FileInfo, error)
 	MkdirStub          func(ctx context.Context, parentID int64, name string) (domain.FileInfo, error)
 	DeleteStub         func(ctx context.Context, fileID int64) error
 	RenameStub         func(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
@@ -42,7 +43,7 @@ type FilesFake struct {
 	StatCalls           []int64
 	DownloadCalls       []int64
 	DownloadStreamCalls []DownloadStreamCall
-	UploadCalls         []kdrive.UploadInput
+	UploadCalls         []service.UploadInput
 	MkdirCalls          []MkdirCall
 	DeleteCalls         []int64
 	RenameCalls         []RenameCall
@@ -165,7 +166,7 @@ func (f *FilesFake) DownloadStream(ctx context.Context, fileID, off, length int6
 	return io.NopCloser(bytes.NewReader(nil)), nil
 }
 
-func (f *FilesFake) Upload(ctx context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
+func (f *FilesFake) Upload(ctx context.Context, in service.UploadInput) (domain.FileInfo, error) {
 	f.mu.Lock()
 	f.UploadCalls = append(f.UploadCalls, in)
 	stub := f.UploadStub
@@ -268,10 +269,10 @@ func (f *FilesFake) GetMoveCalls() []MoveCall {
 }
 
 // GetUploadCalls returns a copy of UploadCalls.
-func (f *FilesFake) GetUploadCalls() []kdrive.UploadInput {
+func (f *FilesFake) GetUploadCalls() []service.UploadInput {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	return append([]kdrive.UploadInput(nil), f.UploadCalls...)
+	return append([]service.UploadInput(nil), f.UploadCalls...)
 }
 
 func (f *FilesFake) Move(ctx context.Context, fileID, destDirID int64) error {

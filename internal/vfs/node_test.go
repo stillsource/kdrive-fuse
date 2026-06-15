@@ -16,9 +16,9 @@ import (
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 // mountFixture spins up an in-process FUSE mount backed by an in-memory Files fake.
@@ -199,7 +199,7 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 
 	It("Create uploads a new file via writeHandle", func() {
 		fake := baseFake()
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
 			data, _ := io.ReadAll(in.Body)
 			Expect(string(data)).To(Equal("new content"))
 			return domain.FileInfo{ID: 50, Name: in.Name, Size: in.Size, Type: domain.FileTypeFile}, nil
@@ -378,7 +378,7 @@ var _ = Describe("DirNode error paths via mount", func() {
 
 	It("Upload error on Create surfaces as IO error on close", func() {
 		fake := baseFake()
-		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (domain.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, _ service.UploadInput) (domain.FileInfo, error) {
 			return domain.FileInfo{}, domain.ErrServer
 		}
 		fx := newMountFixture(fake)
@@ -388,7 +388,7 @@ var _ = Describe("DirNode error paths via mount", func() {
 
 	It("Rewrite an existing file triggers edit mode upload", func() {
 		fake := baseFake()
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
 			Expect(in.ExistingFileID).To(Equal(int64(10)))
 			return domain.FileInfo{ID: 10, Name: in.Name, Size: in.Size}, nil
 		}
@@ -403,7 +403,7 @@ var _ = Describe("DirNode error paths via mount", func() {
 	It("Truncating rewrite uploads only the new bytes, not merged with old content", func() {
 		fake := baseFake() // hello.txt (id=10) holds "hello world" (11 bytes)
 		gotBody := make(chan string, 1)
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
 			body, _ := io.ReadAll(in.Body)
 			gotBody <- string(body)
 			return domain.FileInfo{ID: 10, Name: in.Name, Size: int64(len(body))}, nil

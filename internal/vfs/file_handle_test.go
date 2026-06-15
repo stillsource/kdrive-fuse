@@ -8,9 +8,9 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 var _ = Describe("writeHandle", func() {
@@ -25,8 +25,8 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	// uploadRecorder returns an UploadStub that records every uploaded body.
-	uploadRecorder := func(bodies *[]string) func(context.Context, kdrive.UploadInput) (domain.FileInfo, error) {
-		return func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
+	uploadRecorder := func(bodies *[]string) func(context.Context, service.UploadInput) (domain.FileInfo, error) {
+		return func(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
 			data, _ := io.ReadAll(in.Body)
 			*bodies = append(*bodies, string(data))
 			return domain.FileInfo{ID: 99, Name: in.Name, Size: int64(len(data))}, nil
@@ -115,7 +115,7 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	It("surfaces upload errors on Flush (so close() fails)", func() {
-		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (domain.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, _ service.UploadInput) (domain.FileInfo, error) {
 			return domain.FileInfo{}, domain.ErrServer
 		}
 		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)

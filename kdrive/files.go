@@ -15,6 +15,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive/internal/hash"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 // Files is the contract for file and directory operations. FilesService implements it.
@@ -26,7 +27,7 @@ type Files interface {
 	Stat(ctx context.Context, fileID int64) (domain.FileInfo, error)
 	Download(ctx context.Context, fileID int64) ([]byte, error)
 	DownloadStream(ctx context.Context, fileID, off, length int64) (io.ReadCloser, error)
-	Upload(ctx context.Context, in UploadInput) (domain.FileInfo, error)
+	Upload(ctx context.Context, in service.UploadInput) (domain.FileInfo, error)
 	Mkdir(ctx context.Context, parentID int64, name string) (domain.FileInfo, error)
 	Delete(ctx context.Context, fileID int64) error
 	Rename(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
@@ -128,7 +129,7 @@ func (s *FilesService) DownloadStream(ctx context.Context, fileID, off, length i
 // Upload sends the content of in.Body as a kDrive file using the single-shot
 // upload endpoint. If in.ExistingFileID > 0, replaces that file's content;
 // otherwise creates a new file named in.Name in in.ParentID.
-func (s *FilesService) Upload(ctx context.Context, in UploadInput) (domain.FileInfo, error) {
+func (s *FilesService) Upload(ctx context.Context, in service.UploadInput) (domain.FileInfo, error) {
 	if in.Body == nil {
 		return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation, scerr.WithDetail("upload: body required"))
 	}

@@ -16,6 +16,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive/internal/hash"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 var _ = Describe("FilesService", func() {
@@ -165,7 +166,7 @@ var _ = Describe("FilesService", func() {
 				writeJSON(w, 200, `{"data":{"id":999,"name":"new.txt","type":"file","size":5}}`)
 			})
 			body := []byte("hello")
-			info, err := fx.Client.Files.Upload(ctx, UploadInput{
+			info, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1,
 				Name:     "new.txt",
 				Body:     bytes.NewReader(body),
@@ -193,7 +194,7 @@ var _ = Describe("FilesService", func() {
 				}
 				writeJSON(w, 200, `{"data":{"id":7,"name":"r.txt","type":"file","size":5}}`)
 			})
-			info, err := fx.Client.Files.Upload(ctx, UploadInput{
+			info, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("hello")), Size: 5,
 			})
@@ -214,7 +215,7 @@ var _ = Describe("FilesService", func() {
 				}
 				writeJSON(w, 200, `{"data":{"id":8,"name":"r.txt","type":"file"}}`)
 			})
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("data")), Size: 4,
 			})
@@ -229,7 +230,7 @@ var _ = Describe("FilesService", func() {
 				_ = readBody(r)
 				writeJSON(w, http.StatusBadRequest, `{"error":{"description":"upload hash mismatch"}}`)
 			})
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("data")), Size: 4,
 			})
@@ -244,7 +245,7 @@ var _ = Describe("FilesService", func() {
 				_ = readBody(r)
 				writeJSON(w, http.StatusServiceUnavailable, `{"error":"down"}`)
 			})
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("data")), Size: 4,
 			})
@@ -270,7 +271,7 @@ var _ = Describe("FilesService", func() {
 				WithHTTPClient(&http.Client{Transport: rt}),
 				WithRetries(2, 5*time.Millisecond),
 			)
-			_, err := client.Files.Upload(ctx, UploadInput{
+			_, err := client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("data")), Size: 4,
 			})
@@ -288,7 +289,7 @@ var _ = Describe("FilesService", func() {
 			body := []byte("deterministic content")
 			expected, err := hash.XXH3Stream(bytes.NewReader(body))
 			Expect(err).NotTo(HaveOccurred())
-			_, err = fx.Client.Files.Upload(ctx, UploadInput{
+			_, err = fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "h.txt",
 				Body: bytes.NewReader(body),
 				Size: int64(len(body)),
@@ -305,7 +306,7 @@ var _ = Describe("FilesService", func() {
 				writeJSON(w, 200, `{"data":{"id":42,"name":"kept.txt","type":"file","size":3}}`)
 			})
 			body := []byte("new")
-			info, err := fx.Client.Files.Upload(ctx, UploadInput{
+			info, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ExistingFileID: 42,
 				Body:           bytes.NewReader(body),
 				Size:           3,
@@ -319,12 +320,12 @@ var _ = Describe("FilesService", func() {
 		})
 
 		It("rejects nil body", func() {
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{ParentID: 1, Name: "x.txt"})
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{ParentID: 1, Name: "x.txt"})
 			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 
 		It("rejects invalid parent in create mode", func() {
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 0, Name: "x.txt",
 				Body: bytes.NewReader([]byte("a")), Size: 1,
 			})
@@ -332,7 +333,7 @@ var _ = Describe("FilesService", func() {
 		})
 
 		It("rejects invalid name", func() {
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "bad/name",
 				Body: bytes.NewReader([]byte("a")), Size: 1,
 			})
@@ -344,7 +345,7 @@ var _ = Describe("FilesService", func() {
 				_ = readBody(r)
 				writeJSON(w, 500, `{"error":"boom"}`)
 			})
-			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 				ParentID: 1, Name: "x.txt",
 				Body: bytes.NewReader([]byte("a")), Size: 1,
 			})
@@ -458,7 +459,7 @@ var _ = Describe("FilesService edge cases", func() {
 			_ = readBody(r)
 			writeJSON(w, 200, `not json at all`)
 		})
-		_, err := fx.Client.Files.Upload(ctx, UploadInput{
+		_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 			ParentID: 1, Name: "x.txt",
 			Body: bytes.NewReader([]byte("x")), Size: 1,
 		})
@@ -471,7 +472,7 @@ var _ = Describe("FilesService edge cases", func() {
 			_ = readBody(r)
 			writeJSON(w, 409, `{"error":"conflict"}`)
 		})
-		_, err := fx.Client.Files.Upload(ctx, UploadInput{
+		_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 			ParentID: 1, Name: "x.txt",
 			Body: bytes.NewReader([]byte("x")), Size: 1,
 		})
@@ -479,7 +480,7 @@ var _ = Describe("FilesService edge cases", func() {
 	})
 
 	It("Upload rejects negative size", func() {
-		_, err := fx.Client.Files.Upload(ctx, UploadInput{
+		_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 			ParentID: 1, Name: "x.txt",
 			Body: bytes.NewReader(nil), Size: -1,
 		})
@@ -487,7 +488,7 @@ var _ = Describe("FilesService edge cases", func() {
 	})
 
 	It("Upload rejects invalid existing file id", func() {
-		_, err := fx.Client.Files.Upload(ctx, UploadInput{
+		_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
 			ExistingFileID: -1,
 			Body:           bytes.NewReader([]byte("x")),
 			Size:           1,
