@@ -124,7 +124,7 @@ Run it as a systemd user service to auto-mount at login — see the example unit
 | Trash browsing | ❌ | roadmap |
 | xattrs for kDrive metadata | ❌ | roadmap |
 
-> **Known limitation:** rewriting a file *in place* through the FUSE mount (e.g. `echo > existing`) is not yet reliable — on a truncating rewrite the kernel can send FLUSH before the WRITEs and the new content gets dropped. Creating new files, reading, renaming, and deleting all work; the library `Upload` (with `ExistingFileID`) edits reliably. A write-path redesign is tracked in [`ROADMAP.md`](./ROADMAP.md).
+In-place rewrites through the mount (`echo > existing`, truncating edits) are committed on close: the working file is filled lazily and uploaded once the content is final, so the kernel's FLUSH/WRITE ordering can't drop data.
 
 See [`ROADMAP.md`](./ROADMAP.md) for planned work.
 
