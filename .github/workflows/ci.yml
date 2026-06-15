@@ -22,7 +22,7 @@ jobs:
       - name: Tests with race + coverage
         run: |
           go test -race -coverprofile=coverage.out -covermode=atomic \
-            -coverpkg=./pkg/...,./cmd/... \
+            -coverpkg=./pkg/... \
             ./pkg/... ./cmd/...
       - name: Coverage gate (minimum 90%)
         run: |

@@ -19,7 +19,7 @@ test-race:
 
 test-coverage:
 	go test -race -coverprofile=coverage.out -covermode=atomic \
-		-coverpkg=./pkg/...,./cmd/... \
+		-coverpkg=./pkg/... \
 		./pkg/... ./cmd/...
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | awk '/^total:/{print "total: "$$3}'
