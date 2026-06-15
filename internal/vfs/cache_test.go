@@ -6,12 +6,12 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("DirCache", func() {
 	var c *DirCache
-	sample := []kdrive.FileInfo{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
+	sample := []domain.FileInfo{{ID: 1, Name: "a"}, {ID: 2, Name: "b"}}
 
 	BeforeEach(func() {
 		c = NewDirCache(50 * time.Millisecond)

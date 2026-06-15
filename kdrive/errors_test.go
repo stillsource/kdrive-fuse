@@ -9,6 +9,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("sentinelForStatus", func() {
@@ -21,13 +23,13 @@ var _ = Describe("sentinelForStatus", func() {
 				Expect(got).To(Equal(want))
 			}
 		},
-		Entry("404", http.StatusNotFound, ErrNotFound),
-		Entry("401", http.StatusUnauthorized, ErrAuth),
-		Entry("403", http.StatusForbidden, ErrAuth),
-		Entry("409", http.StatusConflict, ErrConflict),
-		Entry("400", http.StatusBadRequest, ErrValidation),
-		Entry("422", http.StatusUnprocessableEntity, ErrValidation),
-		Entry("429", http.StatusTooManyRequests, ErrRateLimit),
+		Entry("404", http.StatusNotFound, domain.ErrNotFound),
+		Entry("401", http.StatusUnauthorized, domain.ErrAuth),
+		Entry("403", http.StatusForbidden, domain.ErrAuth),
+		Entry("409", http.StatusConflict, domain.ErrConflict),
+		Entry("400", http.StatusBadRequest, domain.ErrValidation),
+		Entry("422", http.StatusUnprocessableEntity, domain.ErrValidation),
+		Entry("429", http.StatusTooManyRequests, domain.ErrRateLimit),
 		Entry("500", http.StatusInternalServerError, error(nil)),
 		Entry("200", http.StatusOK, error(nil)),
 	)
@@ -78,21 +80,21 @@ var _ = Describe("fromResponse", func() {
 	It("maps 404 to ErrNotFound and preserves body snippet", func() {
 		resp := makeResp(http.StatusNotFound, `{"error":"missing"}`)
 		err := fromResponse(resp, "GET /files/42")
-		Expect(errors.Is(err, ErrNotFound)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
 		Expect(err.Error()).To(ContainSubstring("missing"))
 	})
 
 	It("maps 401 to ErrAuth", func() {
 		resp := makeResp(http.StatusUnauthorized, `{}`)
 		err := fromResponse(resp, "GET /files/42")
-		Expect(errors.Is(err, ErrAuth)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrAuth)).To(BeTrue())
 	})
 
 	It("wraps 5xx as ErrServer with HTTPError cause", func() {
 		resp := makeResp(http.StatusBadGateway, "server down")
 		err := fromResponse(resp, "GET /x")
-		Expect(errors.Is(err, ErrServer)).To(BeTrue())
-		var httpErr *HTTPError
+		Expect(errors.Is(err, domain.ErrServer)).To(BeTrue())
+		var httpErr *domain.HTTPError
 		Expect(errors.As(err, &httpErr)).To(BeTrue())
 		Expect(httpErr.StatusCode).To(Equal(http.StatusBadGateway))
 		Expect(httpErr.Body).To(Equal("server down"))
@@ -102,7 +104,7 @@ var _ = Describe("fromResponse", func() {
 		big := strings.Repeat("X", 2048)
 		resp := makeResp(http.StatusBadGateway, big)
 		err := fromResponse(resp, "GET /x")
-		var httpErr *HTTPError
+		var httpErr *domain.HTTPError
 		Expect(errors.As(err, &httpErr)).To(BeTrue())
 		Expect(len(httpErr.Body)).To(BeNumerically("<=", 512))
 	})
@@ -110,7 +112,7 @@ var _ = Describe("fromResponse", func() {
 
 var _ = Describe("HTTPError", func() {
 	It("formats nicely", func() {
-		e := &HTTPError{StatusCode: 502, Body: "bad gateway"}
+		e := &domain.HTTPError{StatusCode: 502, Body: "bad gateway"}
 		Expect(e.Error()).To(ContainSubstring("502"))
 		Expect(e.Error()).To(ContainSubstring("bad gateway"))
 	})

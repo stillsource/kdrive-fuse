@@ -4,37 +4,13 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 
 	scerr "github.com/scality/go-errors"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
-
-// Sentinel errors returned for common kDrive failure modes.
-// Use errors.Is to check:
-//
-//	if errors.Is(err, kdrive.ErrNotFound) { ... }
-var (
-	ErrNotFound   = scerr.New("kdrive: not found")
-	ErrAuth       = scerr.New("kdrive: authentication failed")
-	ErrConflict   = scerr.New("kdrive: conflict")
-	ErrValidation = scerr.New("kdrive: validation failed")
-	ErrRateLimit  = scerr.New("kdrive: rate limited")
-	ErrServer     = scerr.New("kdrive: server error")
-)
-
-// HTTPError wraps an HTTP response that didn't match a specific sentinel.
-// Body is truncated to 512 bytes and never contains the bearer token.
-type HTTPError struct {
-	StatusCode int
-	Body       string
-}
-
-// Error implements the error interface.
-func (e *HTTPError) Error() string {
-	return fmt.Sprintf("kdrive: http %d: %s", e.StatusCode, e.Body)
-}
 
 // fromResponse reads a failed response body, maps the status to a sentinel
 // when possible, and wraps context using scality/go-errors.
@@ -55,23 +31,23 @@ func fromResponse(resp *http.Response, op string) error {
 	if sentinel != nil {
 		return scerr.Wrap(sentinel, opts...)
 	}
-	httpErr := &HTTPError{StatusCode: resp.StatusCode, Body: string(snippet)}
+	httpErr := &domain.HTTPError{StatusCode: resp.StatusCode, Body: string(snippet)}
 	opts = append(opts, scerr.CausedBy(httpErr))
-	return scerr.Wrap(ErrServer, opts...)
+	return scerr.Wrap(domain.ErrServer, opts...)
 }
 
 func sentinelForStatus(status int) error {
 	switch {
 	case status == http.StatusNotFound:
-		return ErrNotFound
+		return domain.ErrNotFound
 	case status == http.StatusUnauthorized, status == http.StatusForbidden:
-		return ErrAuth
+		return domain.ErrAuth
 	case status == http.StatusConflict:
-		return ErrConflict
+		return domain.ErrConflict
 	case status == http.StatusUnprocessableEntity, status == http.StatusBadRequest:
-		return ErrValidation
+		return domain.ErrValidation
 	case status == http.StatusTooManyRequests:
-		return ErrRateLimit
+		return domain.ErrRateLimit
 	case status >= 500:
 		return nil // let caller see the raw HTTPError via ErrServer wrap
 	}

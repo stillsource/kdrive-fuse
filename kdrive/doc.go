@@ -12,13 +12,16 @@
 //
 // # Errors
 //
-// All API calls return typed sentinel errors for common conditions:
+// All API calls return typed sentinel errors (defined in pkg/domain) for
+// common conditions:
 //
-//	if errors.Is(err, kdrive.ErrNotFound) { ... }
-//	if errors.Is(err, kdrive.ErrAuth) { ... }
+//	import "github.com/stillsource/kdrive-fuse/pkg/domain"
 //
-// Unknown HTTP failures are returned as *HTTPError with the status code and
-// a truncated response snippet (tokens are never included).
+//	if errors.Is(err, domain.ErrNotFound) { ... }
+//	if errors.Is(err, domain.ErrAuth) { ... }
+//
+// Unknown HTTP failures are returned as *domain.HTTPError with the status code
+// and a truncated response snippet (tokens are never included).
 //
 // # Upload endpoint quirk
 //

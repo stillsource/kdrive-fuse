@@ -10,6 +10,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("writeHandle", func() {
@@ -24,11 +25,11 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	// uploadRecorder returns an UploadStub that records every uploaded body.
-	uploadRecorder := func(bodies *[]string) func(context.Context, kdrive.UploadInput) (kdrive.FileInfo, error) {
-		return func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+	uploadRecorder := func(bodies *[]string) func(context.Context, kdrive.UploadInput) (domain.FileInfo, error) {
+		return func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
 			data, _ := io.ReadAll(in.Body)
 			*bodies = append(*bodies, string(data))
-			return kdrive.FileInfo{ID: 99, Name: in.Name, Size: int64(len(data))}, nil
+			return domain.FileInfo{ID: 99, Name: in.Name, Size: int64(len(data))}, nil
 		}
 	}
 
@@ -114,8 +115,8 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	It("surfaces upload errors on Flush (so close() fails)", func() {
-		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (kdrive.FileInfo, error) {
-			return kdrive.FileInfo{}, kdrive.ErrServer
+		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (domain.FileInfo, error) {
+			return domain.FileInfo{}, domain.ErrServer
 		}
 		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
 		_, _ = wh.Write(ctx, []byte("a"), 0)
@@ -153,7 +154,7 @@ var _ = Describe("readHandle", func() {
 	})
 
 	It("Read serves requested offset and length", func() {
-		h := &readHandle{kdfs: kdfs, info: kdrive.FileInfo{ID: 10, LastModifiedAt: 1, Size: 19}}
+		h := &readHandle{kdfs: kdfs, info: domain.FileInfo{ID: 10, LastModifiedAt: 1, Size: 19}}
 		buf := make([]byte, 5)
 		res, errno := h.Read(ctx, buf, 4)
 		Expect(errno).To(BeZero())
@@ -164,9 +165,9 @@ var _ = Describe("readHandle", func() {
 
 	It("propagates EIO when DiskCache fails", func() {
 		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
-			10: {Err: kdrive.ErrNotFound},
+			10: {Err: domain.ErrNotFound},
 		}
-		h := &readHandle{kdfs: kdfs, info: kdrive.FileInfo{ID: 10, LastModifiedAt: 99}}
+		h := &readHandle{kdfs: kdfs, info: domain.FileInfo{ID: 10, LastModifiedAt: 99}}
 		_, errno := h.Read(ctx, make([]byte, 1), 0)
 		Expect(errno).NotTo(BeZero())
 		// second call returns EIO fast-path without retry
@@ -176,7 +177,7 @@ var _ = Describe("readHandle", func() {
 
 	It("returns EIO when DiskCache is nil", func() {
 		kdfsNoCache := &KDriveFS{Files: fake, Cache: NewDirCache(time.Second)}
-		h := &readHandle{kdfs: kdfsNoCache, info: kdrive.FileInfo{ID: 10}}
+		h := &readHandle{kdfs: kdfsNoCache, info: domain.FileInfo{ID: 10}}
 		_, errno := h.Read(ctx, make([]byte, 1), 0)
 		Expect(errno).NotTo(BeZero())
 	})

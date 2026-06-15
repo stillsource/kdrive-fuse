@@ -11,8 +11,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("DiskCache", func() {
@@ -87,11 +87,11 @@ var _ = Describe("DiskCache", func() {
 
 	It("propagates download error", func() {
 		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
-			1: {Err: kdrive.ErrNotFound},
+			1: {Err: domain.ErrNotFound},
 		}
 		dc, _ := NewDiskCache(dir, 1024, fake)
 		_, err := dc.Open(ctx, 1, 1, 1)
-		Expect(err).To(MatchError(kdrive.ErrNotFound))
+		Expect(err).To(MatchError(domain.ErrNotFound))
 	})
 
 	It("rejects a non-writable dir on construction", func() {

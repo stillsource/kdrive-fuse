@@ -9,7 +9,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // DirNode represents a kDrive directory.
@@ -36,7 +36,7 @@ func (d *DirNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut)
 	return 0
 }
 
-func (d *DirNode) list(ctx context.Context) ([]kdrive.FileInfo, error) {
+func (d *DirNode) list(ctx context.Context) ([]domain.FileInfo, error) {
 	if files, ok := d.kdfs.Cache.Get(d.folderID); ok {
 		return files, nil
 	}
@@ -120,10 +120,10 @@ func (d *DirNode) Mkdir(ctx context.Context, name string, _ uint32, out *fuse.En
 func (d *DirNode) Create(ctx context.Context, name string, _ uint32, _ uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
 	// Temporary inode number — stable during the handle's lifetime, replaced on next Lookup.
 	tmpIno := uint64(d.folderID)<<32 ^ uint64(len(name))
-	node := &FileNode{kdfs: d.kdfs, info: kdrive.FileInfo{Name: name}}
+	node := &FileNode{kdfs: d.kdfs, info: domain.FileInfo{Name: name}}
 	child := d.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFREG, Ino: tmpIno})
 
-	wh, err := newWriteHandle(d.kdfs.Files, d.folderID, 0, name, func(info kdrive.FileInfo) {
+	wh, err := newWriteHandle(d.kdfs.Files, d.folderID, 0, name, func(info domain.FileInfo) {
 		node.info = info
 		d.kdfs.Cache.Invalidate(d.folderID)
 	})
@@ -180,7 +180,7 @@ func (d *DirNode) Rename(ctx context.Context, name string, newParent fs.InodeEmb
 	if err != nil {
 		return syscall.EIO
 	}
-	var src kdrive.FileInfo
+	var src domain.FileInfo
 	for _, f := range files {
 		if f.Name == name {
 			src = f

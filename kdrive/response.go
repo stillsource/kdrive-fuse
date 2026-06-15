@@ -11,6 +11,8 @@ import (
 	"time"
 
 	scerr "github.com/scality/go-errors"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // do executes an authenticated request with retry on transient failures.
@@ -40,7 +42,7 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 		}
 		req, err := http.NewRequestWithContext(ctx, method, url, reader)
 		if err != nil {
-			return nil, scerr.Wrap(ErrValidation, scerr.WithDetailf("build request: %v", err))
+			return nil, scerr.Wrap(domain.ErrValidation, scerr.WithDetailf("build request: %v", err))
 		}
 		req.Header.Set("Authorization", "Bearer "+c.token)
 		if body != nil && contentType != "" {
@@ -54,7 +56,7 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 		if err != nil {
 			lastErr = err
 			if !isRetryableError(err) {
-				return nil, scerr.Wrap(ErrServer,
+				return nil, scerr.Wrap(domain.ErrServer,
 					scerr.WithDetail("transport error"),
 					scerr.CausedBy(err),
 				)
@@ -88,7 +90,7 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 	if lastErr == nil {
 		lastErr = fmt.Errorf("kdrive: retries exhausted")
 	}
-	return nil, scerr.Wrap(ErrServer,
+	return nil, scerr.Wrap(domain.ErrServer,
 		scerr.WithDetail("retries exhausted"),
 		scerr.CausedBy(lastErr),
 	)
@@ -102,7 +104,7 @@ func (c *Client) decodeJSON(ctx context.Context, method, endpoint string, body [
 	}
 	defer resp.Body.Close() //nolint:errcheck // cleanup only
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return scerr.Wrap(ErrServer,
+		return scerr.Wrap(domain.ErrServer,
 			scerr.WithDetail("decode response"),
 			scerr.CausedBy(err),
 		)

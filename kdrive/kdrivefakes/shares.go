@@ -5,25 +5,26 @@ import (
 	"sync"
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // SharesFake implements kdrive.Shares for tests.
 type SharesFake struct {
 	mu sync.Mutex
 
-	PublishStub    func(ctx context.Context, fileID int64) (kdrive.ShareInfo, error)
+	PublishStub    func(ctx context.Context, fileID int64) (domain.ShareInfo, error)
 	PublishResults map[int64]PublishResult
 	PublishCalls   []int64
 }
 
 type PublishResult struct {
-	Info kdrive.ShareInfo
+	Info domain.ShareInfo
 	Err  error
 }
 
 var _ kdrive.Shares = (*SharesFake)(nil)
 
-func (f *SharesFake) Publish(ctx context.Context, fileID int64) (kdrive.ShareInfo, error) {
+func (f *SharesFake) Publish(ctx context.Context, fileID int64) (domain.ShareInfo, error) {
 	f.mu.Lock()
 	f.PublishCalls = append(f.PublishCalls, fileID)
 	stub := f.PublishStub
@@ -35,5 +36,5 @@ func (f *SharesFake) Publish(ctx context.Context, fileID int64) (kdrive.ShareInf
 	if ok {
 		return res.Info, res.Err
 	}
-	return kdrive.ShareInfo{}, nil
+	return domain.ShareInfo{}, nil
 }

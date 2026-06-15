@@ -1,4 +1,4 @@
-package kdrive
+package domain_test
 
 import (
 	"errors"
@@ -6,14 +6,16 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
-var _ = Describe("validateName", func() {
+var _ = Describe("ValidateName", func() {
 	DescribeTable("rejects invalid names",
 		func(name string) {
-			err := validateName(name)
+			err := domain.ValidateName(name)
 			Expect(err).To(HaveOccurred())
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		},
 		Entry("empty", ""),
 		Entry("slash", "foo/bar"),
@@ -29,7 +31,7 @@ var _ = Describe("validateName", func() {
 
 	DescribeTable("accepts valid names",
 		func(name string) {
-			Expect(validateName(name)).To(Succeed())
+			Expect(domain.ValidateName(name)).To(Succeed())
 		},
 		Entry("simple", "foo.txt"),
 		Entry("with spaces", "my file.pdf"),
@@ -40,23 +42,23 @@ var _ = Describe("validateName", func() {
 	)
 })
 
-var _ = Describe("validateFolderID", func() {
+var _ = Describe("ValidateFolderID", func() {
 	It("accepts positive", func() {
-		Expect(validateFolderID(1)).To(Succeed())
-		Expect(validateFolderID(9999)).To(Succeed())
+		Expect(domain.ValidateFolderID(1)).To(Succeed())
+		Expect(domain.ValidateFolderID(9999)).To(Succeed())
 	})
 	It("rejects zero and negative", func() {
-		Expect(errors.Is(validateFolderID(0), ErrValidation)).To(BeTrue())
-		Expect(errors.Is(validateFolderID(-1), ErrValidation)).To(BeTrue())
+		Expect(errors.Is(domain.ValidateFolderID(0), domain.ErrValidation)).To(BeTrue())
+		Expect(errors.Is(domain.ValidateFolderID(-1), domain.ErrValidation)).To(BeTrue())
 	})
 })
 
-var _ = Describe("validateFileID", func() {
+var _ = Describe("ValidateFileID", func() {
 	It("accepts positive", func() {
-		Expect(validateFileID(42)).To(Succeed())
+		Expect(domain.ValidateFileID(42)).To(Succeed())
 	})
 	It("rejects zero and negative", func() {
-		Expect(errors.Is(validateFileID(0), ErrValidation)).To(BeTrue())
-		Expect(errors.Is(validateFileID(-5), ErrValidation)).To(BeTrue())
+		Expect(errors.Is(domain.ValidateFileID(0), domain.ErrValidation)).To(BeTrue())
+		Expect(errors.Is(domain.ValidateFileID(-5), domain.ErrValidation)).To(BeTrue())
 	})
 })

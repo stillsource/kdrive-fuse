@@ -7,11 +7,13 @@ import (
 	"net/http"
 
 	scerr "github.com/scality/go-errors"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // Shares is the contract for share-link operations. SharesService implements it.
 type Shares interface {
-	Publish(ctx context.Context, fileID int64) (ShareInfo, error)
+	Publish(ctx context.Context, fileID int64) (domain.ShareInfo, error)
 }
 
 // SharesService implements Shares against the live kDrive API.
@@ -23,15 +25,15 @@ var _ Shares = (*SharesService)(nil)
 
 // Publish returns the first existing public share link for fileID, creating a new
 // non-password-protected, non-expiring share if none exists.
-func (s *SharesService) Publish(ctx context.Context, fileID int64) (ShareInfo, error) {
-	if err := validateFileID(fileID); err != nil {
-		return ShareInfo{}, err
+func (s *SharesService) Publish(ctx context.Context, fileID int64) (domain.ShareInfo, error) {
+	if err := domain.ValidateFileID(fileID); err != nil {
+		return domain.ShareInfo{}, err
 	}
 	endpoint := fmt.Sprintf("/files/%d/shares", fileID)
 
 	// Look for an existing share first.
 	var existing struct {
-		Data []ShareInfo `json:"data"`
+		Data []domain.ShareInfo `json:"data"`
 	}
 	if err := s.client.decodeJSON(ctx, http.MethodGet, endpoint, nil, &existing); err == nil {
 		for _, sh := range existing.Data {
@@ -47,16 +49,16 @@ func (s *SharesService) Publish(ctx context.Context, fileID int64) (ShareInfo, e
 		"expiration_date":    0,
 	})
 	if err != nil {
-		return ShareInfo{}, scerr.Wrap(ErrServer, scerr.WithDetailf("marshal share: %v", err))
+		return domain.ShareInfo{}, scerr.Wrap(domain.ErrServer, scerr.WithDetailf("marshal share: %v", err))
 	}
 	var created struct {
-		Data ShareInfo `json:"data"`
+		Data domain.ShareInfo `json:"data"`
 	}
 	if err := s.client.decodeJSON(ctx, http.MethodPost, endpoint, payload, &created); err != nil {
-		return ShareInfo{}, err
+		return domain.ShareInfo{}, err
 	}
 	if created.Data.ShareURL == "" {
-		return ShareInfo{}, scerr.Wrap(ErrServer, scerr.WithDetail("share created but url empty"))
+		return domain.ShareInfo{}, scerr.Wrap(domain.ErrServer, scerr.WithDetail("share created but url empty"))
 	}
 	return created.Data, nil
 }

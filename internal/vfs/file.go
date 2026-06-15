@@ -14,13 +14,14 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // FileNode represents a kDrive file.
 type FileNode struct {
 	fs.Inode
 	kdfs *KDriveFS
-	info kdrive.FileInfo
+	info domain.FileInfo
 
 	mu sync.Mutex
 	wh *writeHandle // active write handle, so a late Setattr(size) can truncate it
@@ -85,7 +86,7 @@ func (f *FileNode) Open(_ context.Context, flags uint32) (fs.FileHandle, uint32,
 		return nil, 0, syscall.EIO
 	}
 
-	wh, err := newWriteHandle(f.kdfs.Files, pDir.folderID, f.info.ID, f.info.Name, func(info kdrive.FileInfo) {
+	wh, err := newWriteHandle(f.kdfs.Files, pDir.folderID, f.info.ID, f.info.Name, func(info domain.FileInfo) {
 		f.info = info
 		f.kdfs.Cache.Invalidate(pDir.folderID)
 	})
@@ -107,7 +108,7 @@ func (f *FileNode) Open(_ context.Context, flags uint32) (fs.FileHandle, uint32,
 // readHandle serves reads from a disk-cached copy, downloading on first Read.
 type readHandle struct {
 	kdfs    *KDriveFS
-	info    kdrive.FileInfo
+	info    domain.FileInfo
 	mu      sync.Mutex
 	file    *os.File
 	opened  bool
@@ -175,7 +176,7 @@ type writeHandle struct {
 	existingFileID int64
 	name           string
 	tmp            *os.File
-	onUploaded     func(kdrive.FileInfo)
+	onUploaded     func(domain.FileInfo)
 	node           *FileNode // set by Open; lets a late Setattr truncate this handle
 	mu             sync.Mutex
 	uploaded       bool // content already committed to the server
@@ -200,7 +201,7 @@ var _ fs.FileWriter = (*writeHandle)(nil)
 var _ fs.FileFlusher = (*writeHandle)(nil)
 var _ fs.FileReleaser = (*writeHandle)(nil)
 
-func newWriteHandle(files kdrive.Files, parentID, existingFileID int64, name string, onUploaded func(kdrive.FileInfo)) (*writeHandle, error) {
+func newWriteHandle(files kdrive.Files, parentID, existingFileID int64, name string, onUploaded func(domain.FileInfo)) (*writeHandle, error) {
 	tmp, err := os.CreateTemp("", "kdrive-upload-*")
 	if err != nil {
 		return nil, err

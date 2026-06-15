@@ -8,6 +8,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("SharesService.Publish", func() {
@@ -77,11 +79,11 @@ var _ = Describe("SharesService.Publish", func() {
 		})
 		_, err := fx.Client.Shares.Publish(ctx, 5)
 		Expect(err).To(HaveOccurred())
-		Expect(errors.Is(err, ErrServer)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrServer)).To(BeTrue())
 	})
 
 	It("rejects invalid file id", func() {
 		_, err := fx.Client.Shares.Publish(ctx, 0)
-		Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 	})
 })

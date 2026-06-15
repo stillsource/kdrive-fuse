@@ -15,6 +15,7 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/stillsource/kdrive-fuse/kdrive/internal/hash"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("FilesService", func() {
@@ -69,7 +70,7 @@ var _ = Describe("FilesService", func() {
 
 		It("rejects invalid folder id", func() {
 			_, err := fx.Client.Files.List(ctx, 0)
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 
 		It("maps 404 to ErrNotFound", func() {
@@ -77,7 +78,7 @@ var _ = Describe("FilesService", func() {
 				writeJSON(w, 404, `{"error":"nope"}`)
 			})
 			_, err := fx.Client.Files.List(ctx, 99)
-			Expect(errors.Is(err, ErrNotFound)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
 		})
 	})
 
@@ -94,7 +95,7 @@ var _ = Describe("FilesService", func() {
 
 		It("rejects invalid id", func() {
 			_, err := fx.Client.Files.Stat(ctx, 0)
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 	})
 
@@ -110,7 +111,7 @@ var _ = Describe("FilesService", func() {
 
 		It("rejects invalid id", func() {
 			_, err := fx.Client.Files.Download(ctx, 0)
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 	})
 
@@ -232,7 +233,7 @@ var _ = Describe("FilesService", func() {
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("data")), Size: 4,
 			})
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 			Expect(calls).To(Equal(1))
 		})
 
@@ -247,7 +248,7 @@ var _ = Describe("FilesService", func() {
 				ParentID: 1, Name: "r.txt",
 				Body: bytes.NewReader([]byte("data")), Size: 4,
 			})
-			Expect(errors.Is(err, ErrServer)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrServer)).To(BeTrue())
 			Expect(calls).To(Equal(3)) // maxRetries(2) + 1
 		})
 
@@ -319,7 +320,7 @@ var _ = Describe("FilesService", func() {
 
 		It("rejects nil body", func() {
 			_, err := fx.Client.Files.Upload(ctx, UploadInput{ParentID: 1, Name: "x.txt"})
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 
 		It("rejects invalid parent in create mode", func() {
@@ -327,7 +328,7 @@ var _ = Describe("FilesService", func() {
 				ParentID: 0, Name: "x.txt",
 				Body: bytes.NewReader([]byte("a")), Size: 1,
 			})
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 
 		It("rejects invalid name", func() {
@@ -335,7 +336,7 @@ var _ = Describe("FilesService", func() {
 				ParentID: 1, Name: "bad/name",
 				Body: bytes.NewReader([]byte("a")), Size: 1,
 			})
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 
 		It("surfaces server errors", func() {
@@ -370,12 +371,12 @@ var _ = Describe("FilesService", func() {
 
 		It("rejects invalid parent", func() {
 			_, err := fx.Client.Files.Mkdir(ctx, 0, "x")
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 
 		It("rejects invalid name", func() {
 			_, err := fx.Client.Files.Mkdir(ctx, 1, "bad/name")
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 	})
 
@@ -392,7 +393,7 @@ var _ = Describe("FilesService", func() {
 		})
 
 		It("rejects invalid id", func() {
-			Expect(errors.Is(fx.Client.Files.Delete(ctx, 0), ErrValidation)).To(BeTrue())
+			Expect(errors.Is(fx.Client.Files.Delete(ctx, 0), domain.ErrValidation)).To(BeTrue())
 		})
 	})
 
@@ -412,7 +413,7 @@ var _ = Describe("FilesService", func() {
 
 		It("rejects invalid name", func() {
 			_, err := fx.Client.Files.Rename(ctx, 1, "")
-			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 		})
 	})
 
@@ -429,8 +430,8 @@ var _ = Describe("FilesService", func() {
 		})
 
 		It("rejects invalid ids", func() {
-			Expect(errors.Is(fx.Client.Files.Move(ctx, 0, 1), ErrValidation)).To(BeTrue())
-			Expect(errors.Is(fx.Client.Files.Move(ctx, 1, 0), ErrValidation)).To(BeTrue())
+			Expect(errors.Is(fx.Client.Files.Move(ctx, 0, 1), domain.ErrValidation)).To(BeTrue())
+			Expect(errors.Is(fx.Client.Files.Move(ctx, 1, 0), domain.ErrValidation)).To(BeTrue())
 		})
 	})
 })
@@ -462,7 +463,7 @@ var _ = Describe("FilesService edge cases", func() {
 			Body: bytes.NewReader([]byte("x")), Size: 1,
 		})
 		Expect(err).To(HaveOccurred())
-		Expect(errors.Is(err, ErrServer)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrServer)).To(BeTrue())
 	})
 
 	It("Upload maps 4xx to sentinel", func() {
@@ -474,7 +475,7 @@ var _ = Describe("FilesService edge cases", func() {
 			ParentID: 1, Name: "x.txt",
 			Body: bytes.NewReader([]byte("x")), Size: 1,
 		})
-		Expect(errors.Is(err, ErrConflict)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrConflict)).To(BeTrue())
 	})
 
 	It("Upload rejects negative size", func() {
@@ -482,7 +483,7 @@ var _ = Describe("FilesService edge cases", func() {
 			ParentID: 1, Name: "x.txt",
 			Body: bytes.NewReader(nil), Size: -1,
 		})
-		Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 	})
 
 	It("Upload rejects invalid existing file id", func() {
@@ -491,12 +492,12 @@ var _ = Describe("FilesService edge cases", func() {
 			Body:           bytes.NewReader([]byte("x")),
 			Size:           1,
 		})
-		Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 	})
 
 	It("Rename rejects invalid file id", func() {
 		_, err := fx.Client.Files.Rename(ctx, 0, "good.txt")
-		Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
 	})
 
 	It("Mkdir maps 4xx to sentinel", func() {
@@ -504,7 +505,7 @@ var _ = Describe("FilesService edge cases", func() {
 			writeJSON(w, 409, `{"error":"exists"}`)
 		})
 		_, err := fx.Client.Files.Mkdir(ctx, 1, "dup")
-		Expect(errors.Is(err, ErrConflict)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrConflict)).To(BeTrue())
 	})
 
 	It("decodeJSON surfaces invalid JSON as ErrServer", func() {
@@ -513,7 +514,7 @@ var _ = Describe("FilesService edge cases", func() {
 		})
 		_, err := fx.Client.Files.Stat(ctx, 1)
 		Expect(err).To(HaveOccurred())
-		Expect(errors.Is(err, ErrServer)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrServer)).To(BeTrue())
 	})
 
 	It("DownloadStream maps 404 to ErrNotFound", func() {
@@ -521,7 +522,7 @@ var _ = Describe("FilesService edge cases", func() {
 			writeJSON(w, 404, `{"error":"gone"}`)
 		})
 		_, err := fx.Client.Files.DownloadStream(ctx, 123, 0, 0)
-		Expect(errors.Is(err, ErrNotFound)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
 	})
 })
 

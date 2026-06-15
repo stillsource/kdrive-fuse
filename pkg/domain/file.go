@@ -1,4 +1,4 @@
-package kdrive
+package domain
 
 // FileType enumerates kDrive node types.
 type FileType string

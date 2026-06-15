@@ -1,4 +1,4 @@
-package kdrive
+package domain
 
 import (
 	scerr "github.com/scality/go-errors"
@@ -6,8 +6,8 @@ import (
 
 const maxNameBytes = 255
 
-// validateName rejects filenames/dirnames that would be unsafe or rejected by kDrive.
-func validateName(name string) error {
+// ValidateName rejects filenames/dirnames that would be unsafe or rejected by kDrive.
+func ValidateName(name string) error {
 	if name == "" {
 		return scerr.Wrap(ErrValidation,
 			scerr.WithDetail("name cannot be empty"),
@@ -37,8 +37,8 @@ func validateName(name string) error {
 	return nil
 }
 
-// validateFolderID rejects zero/negative folder IDs.
-func validateFolderID(id int64) error {
+// ValidateFolderID rejects zero/negative folder IDs.
+func ValidateFolderID(id int64) error {
 	if id <= 0 {
 		return scerr.Wrap(ErrValidation,
 			scerr.WithDetail("folder id must be positive"),
@@ -48,8 +48,8 @@ func validateFolderID(id int64) error {
 	return nil
 }
 
-// validateFileID rejects zero/negative file IDs.
-func validateFileID(id int64) error {
+// ValidateFileID rejects zero/negative file IDs.
+func ValidateFileID(id int64) error {
 	if id <= 0 {
 		return scerr.Wrap(ErrValidation,
 			scerr.WithDetail("file id must be positive"),

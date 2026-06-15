@@ -4,11 +4,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 type dirEntry struct {
-	files   []kdrive.FileInfo
+	files   []domain.FileInfo
 	expires time.Time
 }
 
@@ -26,7 +26,7 @@ func NewDirCache(ttl time.Duration) *DirCache {
 	}
 }
 
-func (c *DirCache) Get(folderID int64) ([]kdrive.FileInfo, bool) {
+func (c *DirCache) Get(folderID int64) ([]domain.FileInfo, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	e, ok := c.entries[folderID]
@@ -36,7 +36,7 @@ func (c *DirCache) Get(folderID int64) ([]kdrive.FileInfo, bool) {
 	return e.files, true
 }
 
-func (c *DirCache) Set(folderID int64, files []kdrive.FileInfo) {
+func (c *DirCache) Set(folderID int64, files []domain.FileInfo) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	c.entries[folderID] = dirEntry{files: files, expires: time.Now().Add(c.ttl)}

@@ -18,6 +18,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // mountFixture spins up an in-process FUSE mount backed by an in-memory Files fake.
@@ -65,12 +66,12 @@ func newMountFixture(fake *kdrivefakes.FilesFake) *mountFixture {
 func baseFake() *kdrivefakes.FilesFake {
 	return &kdrivefakes.FilesFake{
 		ListResults: map[int64]kdrivefakes.ListResult{
-			1: {Files: []kdrive.FileInfo{
-				{ID: 10, Name: "hello.txt", Type: kdrive.FileTypeFile, Size: 11, LastModifiedAt: 100},
-				{ID: 20, Name: "sub", Type: kdrive.FileTypeDir},
+			1: {Files: []domain.FileInfo{
+				{ID: 10, Name: "hello.txt", Type: domain.FileTypeFile, Size: 11, LastModifiedAt: 100},
+				{ID: 20, Name: "sub", Type: domain.FileTypeDir},
 			}},
-			20: {Files: []kdrive.FileInfo{
-				{ID: 30, Name: "nested.txt", Type: kdrive.FileTypeFile, Size: 6, LastModifiedAt: 200},
+			20: {Files: []domain.FileInfo{
+				{ID: 30, Name: "nested.txt", Type: domain.FileTypeFile, Size: 6, LastModifiedAt: 200},
 			}},
 		},
 		DownloadStreamResults: map[int64]kdrivefakes.DownloadStreamResult{
@@ -143,7 +144,7 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 	It("Mkdir creates a directory", func() {
 		fake := baseFake()
 		fake.MkdirResults = map[string]kdrivefakes.MkdirResult{
-			"1/newdir": {Info: kdrive.FileInfo{ID: 40, Name: "newdir", Type: kdrive.FileTypeDir}},
+			"1/newdir": {Info: domain.FileInfo{ID: 40, Name: "newdir", Type: domain.FileTypeDir}},
 		}
 		fx := newMountFixture(fake)
 		Expect(os.Mkdir(filepath.Join(fx.Dir, "newdir"), 0o755)).To(Succeed())
@@ -169,7 +170,7 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 	It("Rename within same directory calls API Rename only", func() {
 		fake := baseFake()
 		fake.RenameResults = map[int64]kdrivefakes.RenameResult{
-			10: {Info: kdrive.FileInfo{ID: 10, Name: "renamed.txt"}},
+			10: {Info: domain.FileInfo{ID: 10, Name: "renamed.txt"}},
 		}
 		fx := newMountFixture(fake)
 		Expect(os.Rename(
@@ -184,7 +185,7 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 		fake := baseFake()
 		fake.MoveResults = map[int64]error{10: nil}
 		fake.RenameResults = map[int64]kdrivefakes.RenameResult{
-			10: {Info: kdrive.FileInfo{ID: 10, Name: "other.txt"}},
+			10: {Info: domain.FileInfo{ID: 10, Name: "other.txt"}},
 		}
 		fx := newMountFixture(fake)
 		Expect(os.Rename(
@@ -198,10 +199,10 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 
 	It("Create uploads a new file via writeHandle", func() {
 		fake := baseFake()
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
 			data, _ := io.ReadAll(in.Body)
 			Expect(string(data)).To(Equal("new content"))
-			return kdrive.FileInfo{ID: 50, Name: in.Name, Size: in.Size, Type: kdrive.FileTypeFile}, nil
+			return domain.FileInfo{ID: 50, Name: in.Name, Size: in.Size, Type: domain.FileTypeFile}, nil
 		}
 		fx := newMountFixture(fake)
 		Expect(os.WriteFile(
@@ -233,20 +234,20 @@ var _ = Describe("DirNode unit — no mount", func() {
 
 	It("list propagates API errors", func() {
 		fake := &kdrivefakes.FilesFake{
-			ListResults: map[int64]kdrivefakes.ListResult{1: {Err: kdrive.ErrNotFound}},
+			ListResults: map[int64]kdrivefakes.ListResult{1: {Err: domain.ErrNotFound}},
 		}
 		d := &DirNode{
 			kdfs:     &KDriveFS{Files: fake, Cache: NewDirCache(time.Second)},
 			folderID: 1,
 		}
 		_, err := d.list(context.Background())
-		Expect(err).To(MatchError(kdrive.ErrNotFound))
+		Expect(err).To(MatchError(domain.ErrNotFound))
 	})
 
 	It("list caches subsequent calls", func() {
 		fake := &kdrivefakes.FilesFake{
 			ListResults: map[int64]kdrivefakes.ListResult{
-				1: {Files: []kdrive.FileInfo{{ID: 10, Name: "a"}}},
+				1: {Files: []domain.FileInfo{{ID: 10, Name: "a"}}},
 			},
 		}
 		d := &DirNode{
@@ -263,7 +264,7 @@ var _ = Describe("DirNode unit — no mount", func() {
 
 var _ = Describe("FileNode unit — no mount", func() {
 	It("Getattr reports file mode and size", func() {
-		f := &FileNode{kdfs: &KDriveFS{}, info: kdrive.FileInfo{Size: 12, Type: kdrive.FileTypeFile}}
+		f := &FileNode{kdfs: &KDriveFS{}, info: domain.FileInfo{Size: 12, Type: domain.FileTypeFile}}
 		var out fuse.AttrOut
 		errno := f.Getattr(context.Background(), nil, &out)
 		Expect(errno).To(BeZero())
@@ -272,7 +273,7 @@ var _ = Describe("FileNode unit — no mount", func() {
 	})
 
 	It("Getattr stamps the mounting user as owner, not root", func() {
-		f := &FileNode{kdfs: &KDriveFS{Uid: 4242, Gid: 4343}, info: kdrive.FileInfo{Type: kdrive.FileTypeFile}}
+		f := &FileNode{kdfs: &KDriveFS{Uid: 4242, Gid: 4343}, info: domain.FileInfo{Type: domain.FileTypeFile}}
 		var out fuse.AttrOut
 		Expect(f.Getattr(context.Background(), nil, &out)).To(BeZero())
 		Expect(out.Owner.Uid).To(Equal(uint32(4242)))
@@ -280,7 +281,7 @@ var _ = Describe("FileNode unit — no mount", func() {
 	})
 
 	It("Setattr updates size", func() {
-		f := &FileNode{kdfs: &KDriveFS{}, info: kdrive.FileInfo{Size: 12}}
+		f := &FileNode{kdfs: &KDriveFS{}, info: domain.FileInfo{Size: 12}}
 		in := &fuse.SetAttrIn{SetAttrInCommon: fuse.SetAttrInCommon{Valid: fuse.FATTR_SIZE, Size: 0}}
 		var out fuse.AttrOut
 		errno := f.Setattr(context.Background(), nil, in, &out)
@@ -321,7 +322,7 @@ var _ = Describe("DirNode error paths via mount", func() {
 	It("Readdir propagates API error as EIO", func() {
 		fake := &kdrivefakes.FilesFake{
 			ListResults: map[int64]kdrivefakes.ListResult{
-				1: {Err: kdrive.ErrServer},
+				1: {Err: domain.ErrServer},
 			},
 		}
 		fx := newMountFixture(fake)
@@ -331,8 +332,8 @@ var _ = Describe("DirNode error paths via mount", func() {
 
 	It("Mkdir propagates API error as EIO", func() {
 		fake := baseFake()
-		fake.MkdirStub = func(_ context.Context, _ int64, _ string) (kdrive.FileInfo, error) {
-			return kdrive.FileInfo{}, kdrive.ErrConflict
+		fake.MkdirStub = func(_ context.Context, _ int64, _ string) (domain.FileInfo, error) {
+			return domain.FileInfo{}, domain.ErrConflict
 		}
 		fx := newMountFixture(fake)
 		err := os.Mkdir(filepath.Join(fx.Dir, "x"), 0o755)
@@ -342,7 +343,7 @@ var _ = Describe("DirNode error paths via mount", func() {
 	It("Delete API error bubbles up as EIO on unlink", func() {
 		fake := baseFake()
 		fake.DeleteStub = func(_ context.Context, _ int64) error {
-			return kdrive.ErrServer
+			return domain.ErrServer
 		}
 		fx := newMountFixture(fake)
 		err := os.Remove(filepath.Join(fx.Dir, "hello.txt"))
@@ -352,7 +353,7 @@ var _ = Describe("DirNode error paths via mount", func() {
 	It("Rename with Move API error returns EIO", func() {
 		fake := baseFake()
 		fake.MoveStub = func(_ context.Context, _, _ int64) error {
-			return kdrive.ErrServer
+			return domain.ErrServer
 		}
 		fx := newMountFixture(fake)
 		err := os.Rename(
@@ -364,8 +365,8 @@ var _ = Describe("DirNode error paths via mount", func() {
 
 	It("Rename with Rename API error returns EIO", func() {
 		fake := baseFake()
-		fake.RenameStub = func(_ context.Context, _ int64, _ string) (kdrive.FileInfo, error) {
-			return kdrive.FileInfo{}, kdrive.ErrConflict
+		fake.RenameStub = func(_ context.Context, _ int64, _ string) (domain.FileInfo, error) {
+			return domain.FileInfo{}, domain.ErrConflict
 		}
 		fx := newMountFixture(fake)
 		err := os.Rename(
@@ -377,8 +378,8 @@ var _ = Describe("DirNode error paths via mount", func() {
 
 	It("Upload error on Create surfaces as IO error on close", func() {
 		fake := baseFake()
-		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (kdrive.FileInfo, error) {
-			return kdrive.FileInfo{}, kdrive.ErrServer
+		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (domain.FileInfo, error) {
+			return domain.FileInfo{}, domain.ErrServer
 		}
 		fx := newMountFixture(fake)
 		err := os.WriteFile(filepath.Join(fx.Dir, "bad.txt"), []byte("x"), 0o644)
@@ -387,9 +388,9 @@ var _ = Describe("DirNode error paths via mount", func() {
 
 	It("Rewrite an existing file triggers edit mode upload", func() {
 		fake := baseFake()
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
 			Expect(in.ExistingFileID).To(Equal(int64(10)))
-			return kdrive.FileInfo{ID: 10, Name: in.Name, Size: in.Size}, nil
+			return domain.FileInfo{ID: 10, Name: in.Name, Size: in.Size}, nil
 		}
 		fx := newMountFixture(fake)
 		Expect(os.WriteFile(
@@ -402,10 +403,10 @@ var _ = Describe("DirNode error paths via mount", func() {
 	It("Truncating rewrite uploads only the new bytes, not merged with old content", func() {
 		fake := baseFake() // hello.txt (id=10) holds "hello world" (11 bytes)
 		gotBody := make(chan string, 1)
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
 			body, _ := io.ReadAll(in.Body)
 			gotBody <- string(body)
-			return kdrive.FileInfo{ID: 10, Name: in.Name, Size: int64(len(body))}, nil
+			return domain.FileInfo{ID: 10, Name: in.Name, Size: int64(len(body))}, nil
 		}
 		fx := newMountFixture(fake)
 		Expect(os.WriteFile(

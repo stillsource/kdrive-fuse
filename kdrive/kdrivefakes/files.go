@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // FilesFake implements kdrive.Files for tests.
@@ -15,14 +16,14 @@ type FilesFake struct {
 	mu sync.Mutex
 
 	// Stubs — if non-nil, handle every call for that method.
-	ListStub           func(ctx context.Context, folderID int64) ([]kdrive.FileInfo, error)
-	StatStub           func(ctx context.Context, fileID int64) (kdrive.FileInfo, error)
+	ListStub           func(ctx context.Context, folderID int64) ([]domain.FileInfo, error)
+	StatStub           func(ctx context.Context, fileID int64) (domain.FileInfo, error)
 	DownloadStub       func(ctx context.Context, fileID int64) ([]byte, error)
 	DownloadStreamStub func(ctx context.Context, fileID, off, length int64) (io.ReadCloser, error)
-	UploadStub         func(ctx context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error)
-	MkdirStub          func(ctx context.Context, parentID int64, name string) (kdrive.FileInfo, error)
+	UploadStub         func(ctx context.Context, in kdrive.UploadInput) (domain.FileInfo, error)
+	MkdirStub          func(ctx context.Context, parentID int64, name string) (domain.FileInfo, error)
 	DeleteStub         func(ctx context.Context, fileID int64) error
-	RenameStub         func(ctx context.Context, fileID int64, newName string) (kdrive.FileInfo, error)
+	RenameStub         func(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
 	MoveStub           func(ctx context.Context, fileID, destDirID int64) error
 
 	// Results — keyed by the primary identifier.
@@ -50,12 +51,12 @@ type FilesFake struct {
 
 type ListCall struct{ FolderID int64 }
 type ListResult struct {
-	Files []kdrive.FileInfo
+	Files []domain.FileInfo
 	Err   error
 }
 
 type StatResult struct {
-	Info kdrive.FileInfo
+	Info domain.FileInfo
 	Err  error
 }
 
@@ -73,7 +74,7 @@ type DownloadStreamResult struct {
 }
 
 type UploadResult struct {
-	Info kdrive.FileInfo
+	Info domain.FileInfo
 	Err  error
 }
 
@@ -82,7 +83,7 @@ type MkdirCall struct {
 	Name     string
 }
 type MkdirResult struct {
-	Info kdrive.FileInfo
+	Info domain.FileInfo
 	Err  error
 }
 
@@ -91,7 +92,7 @@ type RenameCall struct {
 	NewName string
 }
 type RenameResult struct {
-	Info kdrive.FileInfo
+	Info domain.FileInfo
 	Err  error
 }
 
@@ -101,7 +102,7 @@ type MoveCall struct {
 
 var _ kdrive.Files = (*FilesFake)(nil)
 
-func (f *FilesFake) List(ctx context.Context, folderID int64) ([]kdrive.FileInfo, error) {
+func (f *FilesFake) List(ctx context.Context, folderID int64) ([]domain.FileInfo, error) {
 	f.mu.Lock()
 	f.ListCalls = append(f.ListCalls, ListCall{FolderID: folderID})
 	stub := f.ListStub
@@ -116,7 +117,7 @@ func (f *FilesFake) List(ctx context.Context, folderID int64) ([]kdrive.FileInfo
 	return nil, nil
 }
 
-func (f *FilesFake) Stat(ctx context.Context, fileID int64) (kdrive.FileInfo, error) {
+func (f *FilesFake) Stat(ctx context.Context, fileID int64) (domain.FileInfo, error) {
 	f.mu.Lock()
 	f.StatCalls = append(f.StatCalls, fileID)
 	stub := f.StatStub
@@ -128,7 +129,7 @@ func (f *FilesFake) Stat(ctx context.Context, fileID int64) (kdrive.FileInfo, er
 	if ok {
 		return res.Info, res.Err
 	}
-	return kdrive.FileInfo{}, nil
+	return domain.FileInfo{}, nil
 }
 
 func (f *FilesFake) Download(ctx context.Context, fileID int64) ([]byte, error) {
@@ -164,7 +165,7 @@ func (f *FilesFake) DownloadStream(ctx context.Context, fileID, off, length int6
 	return io.NopCloser(bytes.NewReader(nil)), nil
 }
 
-func (f *FilesFake) Upload(ctx context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+func (f *FilesFake) Upload(ctx context.Context, in kdrive.UploadInput) (domain.FileInfo, error) {
 	f.mu.Lock()
 	f.UploadCalls = append(f.UploadCalls, in)
 	stub := f.UploadStub
@@ -180,10 +181,10 @@ func (f *FilesFake) Upload(ctx context.Context, in kdrive.UploadInput) (kdrive.F
 	if ok {
 		return res.Info, res.Err
 	}
-	return kdrive.FileInfo{}, nil
+	return domain.FileInfo{}, nil
 }
 
-func (f *FilesFake) Mkdir(ctx context.Context, parentID int64, name string) (kdrive.FileInfo, error) {
+func (f *FilesFake) Mkdir(ctx context.Context, parentID int64, name string) (domain.FileInfo, error) {
 	f.mu.Lock()
 	f.MkdirCalls = append(f.MkdirCalls, MkdirCall{ParentID: parentID, Name: name})
 	stub := f.MkdirStub
@@ -195,7 +196,7 @@ func (f *FilesFake) Mkdir(ctx context.Context, parentID int64, name string) (kdr
 	if ok {
 		return res.Info, res.Err
 	}
-	return kdrive.FileInfo{}, nil
+	return domain.FileInfo{}, nil
 }
 
 func (f *FilesFake) Delete(ctx context.Context, fileID int64) error {
@@ -213,7 +214,7 @@ func (f *FilesFake) Delete(ctx context.Context, fileID int64) error {
 	return nil
 }
 
-func (f *FilesFake) Rename(ctx context.Context, fileID int64, newName string) (kdrive.FileInfo, error) {
+func (f *FilesFake) Rename(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error) {
 	f.mu.Lock()
 	f.RenameCalls = append(f.RenameCalls, RenameCall{FileID: fileID, NewName: newName})
 	stub := f.RenameStub
@@ -225,7 +226,7 @@ func (f *FilesFake) Rename(ctx context.Context, fileID int64, newName string) (k
 	if ok {
 		return res.Info, res.Err
 	}
-	return kdrive.FileInfo{}, nil
+	return domain.FileInfo{}, nil
 }
 
 // Snapshot getters — concurrency-safe copies of call records.

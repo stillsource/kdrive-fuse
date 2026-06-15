@@ -1,4 +1,4 @@
-package kdrive
+package domain
 
 // ShareInfo is the subset of share metadata returned by kDrive that this client exposes.
 type ShareInfo struct {

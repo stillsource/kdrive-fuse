@@ -10,6 +10,8 @@ import (
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
+
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 var _ = Describe("Client construction", func() {
@@ -137,7 +139,7 @@ var _ = Describe("Transport behavior", func() {
 		})
 		_, err := fx.Client.Files.Stat(context.Background(), 1)
 		Expect(err).To(HaveOccurred())
-		Expect(errors.Is(err, ErrServer)).To(BeTrue())
+		Expect(errors.Is(err, domain.ErrServer)).To(BeTrue())
 		Expect(attempts.Load()).To(Equal(int32(3))) // initial + 2 retries
 	})
 

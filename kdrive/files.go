@@ -14,6 +14,7 @@ import (
 	scerr "github.com/scality/go-errors"
 
 	"github.com/stillsource/kdrive-fuse/kdrive/internal/hash"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 // Files is the contract for file and directory operations. FilesService implements it.
@@ -21,14 +22,14 @@ import (
 // not on *FilesService directly. kdrivefakes.FilesFake is a ready-made implementation
 // suitable for unit tests.
 type Files interface {
-	List(ctx context.Context, folderID int64) ([]FileInfo, error)
-	Stat(ctx context.Context, fileID int64) (FileInfo, error)
+	List(ctx context.Context, folderID int64) ([]domain.FileInfo, error)
+	Stat(ctx context.Context, fileID int64) (domain.FileInfo, error)
 	Download(ctx context.Context, fileID int64) ([]byte, error)
 	DownloadStream(ctx context.Context, fileID, off, length int64) (io.ReadCloser, error)
-	Upload(ctx context.Context, in UploadInput) (FileInfo, error)
-	Mkdir(ctx context.Context, parentID int64, name string) (FileInfo, error)
+	Upload(ctx context.Context, in UploadInput) (domain.FileInfo, error)
+	Mkdir(ctx context.Context, parentID int64, name string) (domain.FileInfo, error)
 	Delete(ctx context.Context, fileID int64) error
-	Rename(ctx context.Context, fileID int64, newName string) (FileInfo, error)
+	Rename(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
 	Move(ctx context.Context, fileID, destDirID int64) error
 }
 
@@ -44,14 +45,14 @@ var _ Files = (*FilesService)(nil)
 const listPageSize = 500
 
 // List returns the direct children of folderID, paging until exhausted.
-func (s *FilesService) List(ctx context.Context, folderID int64) ([]FileInfo, error) {
-	if err := validateFolderID(folderID); err != nil {
+func (s *FilesService) List(ctx context.Context, folderID int64) ([]domain.FileInfo, error) {
+	if err := domain.ValidateFolderID(folderID); err != nil {
 		return nil, err
 	}
-	var all []FileInfo
+	var all []domain.FileInfo
 	for page := 1; ; page++ {
 		var resp struct {
-			Data []FileInfo `json:"data"`
+			Data []domain.FileInfo `json:"data"`
 		}
 		endpoint := fmt.Sprintf("/files/%d/files?per_page=%d&page=%d", folderID, listPageSize, page)
 		if err := s.client.decodeJSON(ctx, http.MethodGet, endpoint, nil, &resp); err != nil {
@@ -66,16 +67,16 @@ func (s *FilesService) List(ctx context.Context, folderID int64) ([]FileInfo, er
 }
 
 // Stat fetches full metadata for a single file or directory.
-func (s *FilesService) Stat(ctx context.Context, fileID int64) (FileInfo, error) {
-	if err := validateFileID(fileID); err != nil {
-		return FileInfo{}, err
+func (s *FilesService) Stat(ctx context.Context, fileID int64) (domain.FileInfo, error) {
+	if err := domain.ValidateFileID(fileID); err != nil {
+		return domain.FileInfo{}, err
 	}
 	var resp struct {
-		Data FileInfo `json:"data"`
+		Data domain.FileInfo `json:"data"`
 	}
 	endpoint := fmt.Sprintf("/files/%d", fileID)
 	if err := s.client.decodeJSON(ctx, http.MethodGet, endpoint, nil, &resp); err != nil {
-		return FileInfo{}, err
+		return domain.FileInfo{}, err
 	}
 	return resp.Data, nil
 }
@@ -90,7 +91,7 @@ func (s *FilesService) Download(ctx context.Context, fileID int64) ([]byte, erro
 	defer rc.Close() //nolint:errcheck // cleanup only
 	data, err := io.ReadAll(rc)
 	if err != nil {
-		return nil, scerr.Wrap(ErrServer,
+		return nil, scerr.Wrap(domain.ErrServer,
 			scerr.WithDetailf("read download body: %v", err),
 			scerr.CausedBy(err),
 		)
@@ -104,7 +105,7 @@ func (s *FilesService) Download(ctx context.Context, fileID int64) ([]byte, erro
 // If length == 0 and off == 0, returns the full body.
 // Caller must Close.
 func (s *FilesService) DownloadStream(ctx context.Context, fileID, off, length int64) (io.ReadCloser, error) {
-	if err := validateFileID(fileID); err != nil {
+	if err := domain.ValidateFileID(fileID); err != nil {
 		return nil, err
 	}
 	endpoint := fmt.Sprintf("/files/%d/download", fileID)
@@ -127,38 +128,38 @@ func (s *FilesService) DownloadStream(ctx context.Context, fileID, off, length i
 // Upload sends the content of in.Body as a kDrive file using the single-shot
 // upload endpoint. If in.ExistingFileID > 0, replaces that file's content;
 // otherwise creates a new file named in.Name in in.ParentID.
-func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, error) {
+func (s *FilesService) Upload(ctx context.Context, in UploadInput) (domain.FileInfo, error) {
 	if in.Body == nil {
-		return FileInfo{}, scerr.Wrap(ErrValidation, scerr.WithDetail("upload: body required"))
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation, scerr.WithDetail("upload: body required"))
 	}
 	if in.Size < 0 {
-		return FileInfo{}, scerr.Wrap(ErrValidation, scerr.WithDetail("upload: size must be >= 0"))
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation, scerr.WithDetail("upload: size must be >= 0"))
 	}
 	if in.ExistingFileID > 0 {
-		if err := validateFileID(in.ExistingFileID); err != nil {
-			return FileInfo{}, err
+		if err := domain.ValidateFileID(in.ExistingFileID); err != nil {
+			return domain.FileInfo{}, err
 		}
 	} else {
-		if err := validateFolderID(in.ParentID); err != nil {
-			return FileInfo{}, err
+		if err := domain.ValidateFolderID(in.ParentID); err != nil {
+			return domain.FileInfo{}, err
 		}
-		if err := validateName(in.Name); err != nil {
-			return FileInfo{}, err
+		if err := domain.ValidateName(in.Name); err != nil {
+			return domain.FileInfo{}, err
 		}
 	}
 
 	if _, err := in.Body.Seek(0, io.SeekStart); err != nil {
-		return FileInfo{}, scerr.Wrap(ErrValidation,
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation,
 			scerr.WithDetail("upload body: seek to start for hashing"),
 			scerr.CausedBy(err),
 		)
 	}
 	hashStr, err := hash.XXH3Stream(in.Body)
 	if err != nil {
-		return FileInfo{}, scerr.Wrap(ErrServer, scerr.WithDetail("hash upload body"), scerr.CausedBy(err))
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrServer, scerr.WithDetail("hash upload body"), scerr.CausedBy(err))
 	}
 	if _, err := in.Body.Seek(0, io.SeekStart); err != nil {
-		return FileInfo{}, scerr.Wrap(ErrServer,
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrServer,
 			scerr.WithDetail("upload body: seek to start for upload"),
 			scerr.CausedBy(err),
 		)
@@ -189,11 +190,11 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 	for attempt := 0; attempt <= s.client.maxRetries; attempt++ {
 		if attempt > 0 {
 			if err := sleepCtx(ctx, backoff); err != nil {
-				return FileInfo{}, err
+				return domain.FileInfo{}, err
 			}
 			backoff *= 2
 			if _, err := in.Body.Seek(0, io.SeekStart); err != nil {
-				return FileInfo{}, scerr.Wrap(ErrServer,
+				return domain.FileInfo{}, scerr.Wrap(domain.ErrServer,
 					scerr.WithDetail("upload body: seek to start for retry"),
 					scerr.CausedBy(err),
 				)
@@ -202,7 +203,7 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 
 		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, in.Body)
 		if err != nil {
-			return FileInfo{}, scerr.Wrap(ErrValidation, scerr.WithDetailf("build upload req: %v", err))
+			return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation, scerr.WithDetailf("build upload req: %v", err))
 		}
 		req.Header.Set("Authorization", "Bearer "+s.client.token)
 		req.Header.Set("Content-Type", "application/octet-stream")
@@ -212,7 +213,7 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 		if err != nil {
 			lastErr = err
 			if !isRetryableError(err) {
-				return FileInfo{}, scerr.Wrap(ErrServer,
+				return domain.FileInfo{}, scerr.Wrap(domain.ErrServer,
 					scerr.WithDetail("upload transport"),
 					scerr.CausedBy(err),
 				)
@@ -237,16 +238,16 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 		if resp.StatusCode >= 400 {
 			apiErr := fromResponse(resp, "POST /upload")
 			drainAndClose(resp.Body)
-			return FileInfo{}, apiErr
+			return domain.FileInfo{}, apiErr
 		}
 
 		var out struct {
-			Data FileInfo `json:"data"`
+			Data domain.FileInfo `json:"data"`
 		}
 		err = json.NewDecoder(resp.Body).Decode(&out)
 		drainAndClose(resp.Body)
 		if err != nil {
-			return FileInfo{}, scerr.Wrap(ErrServer,
+			return domain.FileInfo{}, scerr.Wrap(domain.ErrServer,
 				scerr.WithDetail("decode upload response"),
 				scerr.CausedBy(err),
 			)
@@ -257,37 +258,37 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 	if lastErr == nil {
 		lastErr = fmt.Errorf("kdrive: upload retries exhausted")
 	}
-	return FileInfo{}, scerr.Wrap(ErrServer,
+	return domain.FileInfo{}, scerr.Wrap(domain.ErrServer,
 		scerr.WithDetail("upload retries exhausted"),
 		scerr.CausedBy(lastErr),
 	)
 }
 
 // Mkdir creates a directory named name inside parentID.
-func (s *FilesService) Mkdir(ctx context.Context, parentID int64, name string) (FileInfo, error) {
-	if err := validateFolderID(parentID); err != nil {
-		return FileInfo{}, err
+func (s *FilesService) Mkdir(ctx context.Context, parentID int64, name string) (domain.FileInfo, error) {
+	if err := domain.ValidateFolderID(parentID); err != nil {
+		return domain.FileInfo{}, err
 	}
-	if err := validateName(name); err != nil {
-		return FileInfo{}, err
+	if err := domain.ValidateName(name); err != nil {
+		return domain.FileInfo{}, err
 	}
 	body, err := json.Marshal(map[string]string{"name": name})
 	if err != nil {
-		return FileInfo{}, scerr.Wrap(ErrServer, scerr.WithDetailf("marshal mkdir: %v", err))
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrServer, scerr.WithDetailf("marshal mkdir: %v", err))
 	}
 	endpoint := fmt.Sprintf("/files/%d/directory", parentID)
 	var resp struct {
-		Data FileInfo `json:"data"`
+		Data domain.FileInfo `json:"data"`
 	}
 	if err := s.client.decodeJSON(ctx, http.MethodPost, endpoint, body, &resp); err != nil {
-		return FileInfo{}, err
+		return domain.FileInfo{}, err
 	}
 	return resp.Data, nil
 }
 
 // Delete moves a file or directory to the kDrive trash (soft delete).
 func (s *FilesService) Delete(ctx context.Context, fileID int64) error {
-	if err := validateFileID(fileID); err != nil {
+	if err := domain.ValidateFileID(fileID); err != nil {
 		return err
 	}
 	endpoint := fmt.Sprintf("/files/%d", fileID)
@@ -300,33 +301,33 @@ func (s *FilesService) Delete(ctx context.Context, fileID int64) error {
 }
 
 // Rename changes a file or directory's name in place.
-func (s *FilesService) Rename(ctx context.Context, fileID int64, newName string) (FileInfo, error) {
-	if err := validateFileID(fileID); err != nil {
-		return FileInfo{}, err
+func (s *FilesService) Rename(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error) {
+	if err := domain.ValidateFileID(fileID); err != nil {
+		return domain.FileInfo{}, err
 	}
-	if err := validateName(newName); err != nil {
-		return FileInfo{}, err
+	if err := domain.ValidateName(newName); err != nil {
+		return domain.FileInfo{}, err
 	}
 	body, err := json.Marshal(map[string]string{"name": newName})
 	if err != nil {
-		return FileInfo{}, scerr.Wrap(ErrServer, scerr.WithDetailf("marshal rename: %v", err))
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrServer, scerr.WithDetailf("marshal rename: %v", err))
 	}
 	endpoint := fmt.Sprintf("/files/%d/rename", fileID)
 	var resp struct {
-		Data FileInfo `json:"data"`
+		Data domain.FileInfo `json:"data"`
 	}
 	if err := s.client.decodeJSON(ctx, http.MethodPost, endpoint, body, &resp); err != nil {
-		return FileInfo{}, err
+		return domain.FileInfo{}, err
 	}
 	return resp.Data, nil
 }
 
 // Move relocates a file or directory into destDirID (preserves its name).
 func (s *FilesService) Move(ctx context.Context, fileID, destDirID int64) error {
-	if err := validateFileID(fileID); err != nil {
+	if err := domain.ValidateFileID(fileID); err != nil {
 		return err
 	}
-	if err := validateFolderID(destDirID); err != nil {
+	if err := domain.ValidateFolderID(destDirID); err != nil {
 		return err
 	}
 	endpoint := fmt.Sprintf("/files/%d/move/%d", fileID, destDirID)

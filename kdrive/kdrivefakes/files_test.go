@@ -12,6 +12,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
 func TestKdrivefakes(t *testing.T) {
@@ -28,8 +29,8 @@ var _ = Describe("FilesFake", func() {
 	})
 
 	It("List uses stub when set", func() {
-		f.ListStub = func(_ context.Context, id int64) ([]kdrive.FileInfo, error) {
-			return []kdrive.FileInfo{{ID: id, Name: "s"}}, nil
+		f.ListStub = func(_ context.Context, id int64) ([]domain.FileInfo, error) {
+			return []domain.FileInfo{{ID: id, Name: "s"}}, nil
 		}
 		got, err := f.List(ctx, 42)
 		Expect(err).NotTo(HaveOccurred())
@@ -39,7 +40,7 @@ var _ = Describe("FilesFake", func() {
 
 	It("List uses Results map when stub absent", func() {
 		f.ListResults = map[int64]kdrivefakes.ListResult{
-			42: {Files: []kdrive.FileInfo{{ID: 99}}, Err: nil},
+			42: {Files: []domain.FileInfo{{ID: 99}}, Err: nil},
 		}
 		got, err := f.List(ctx, 42)
 		Expect(err).NotTo(HaveOccurred())
@@ -78,7 +79,7 @@ var _ = Describe("FilesFake", func() {
 
 	It("Upload records input and returns result by name key", func() {
 		f.UploadResults = map[string]kdrivefakes.UploadResult{
-			"new.txt": {Info: kdrive.FileInfo{ID: 5, Name: "new.txt"}},
+			"new.txt": {Info: domain.FileInfo{ID: 5, Name: "new.txt"}},
 		}
 		info, err := f.Upload(ctx, kdrive.UploadInput{
 			ParentID: 1, Name: "new.txt",
@@ -91,7 +92,7 @@ var _ = Describe("FilesFake", func() {
 
 	It("Upload keys by id:N in edit mode", func() {
 		f.UploadResults = map[string]kdrivefakes.UploadResult{
-			"id:42": {Info: kdrive.FileInfo{ID: 42}},
+			"id:42": {Info: domain.FileInfo{ID: 42}},
 		}
 		info, err := f.Upload(ctx, kdrive.UploadInput{
 			ExistingFileID: 42, Body: bytes.NewReader(nil), Size: 0,
@@ -102,7 +103,7 @@ var _ = Describe("FilesFake", func() {
 
 	It("Mkdir uses parentID/name key", func() {
 		f.MkdirResults = map[string]kdrivefakes.MkdirResult{
-			"1/new": {Info: kdrive.FileInfo{ID: 9, Name: "new", Type: kdrive.FileTypeDir}},
+			"1/new": {Info: domain.FileInfo{ID: 9, Name: "new", Type: domain.FileTypeDir}},
 		}
 		info, err := f.Mkdir(ctx, 1, "new")
 		Expect(err).NotTo(HaveOccurred())
@@ -113,7 +114,7 @@ var _ = Describe("FilesFake", func() {
 		boom := errors.New("boom")
 		f.DeleteResults = map[int64]error{3: boom}
 		f.RenameResults = map[int64]kdrivefakes.RenameResult{
-			5: {Info: kdrive.FileInfo{ID: 5, Name: "r"}, Err: nil},
+			5: {Info: domain.FileInfo{ID: 5, Name: "r"}, Err: nil},
 		}
 		f.MoveResults = map[int64]error{7: nil}
 
@@ -170,14 +171,14 @@ var _ = Describe("SharesFake", func() {
 		Expect(info.ShareURL).To(BeEmpty())
 
 		f.PublishResults = map[int64]kdrivefakes.PublishResult{
-			2: {Info: kdrive.ShareInfo{ShareURL: "https://x"}},
+			2: {Info: domain.ShareInfo{ShareURL: "https://x"}},
 		}
 		info, err = f.Publish(context.Background(), 2)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.ShareURL).To(Equal("https://x"))
 
-		f.PublishStub = func(_ context.Context, _ int64) (kdrive.ShareInfo, error) {
-			return kdrive.ShareInfo{ShareURL: "https://stub"}, nil
+		f.PublishStub = func(_ context.Context, _ int64) (domain.ShareInfo, error) {
+			return domain.ShareInfo{ShareURL: "https://stub"}, nil
 		}
 		info, _ = f.Publish(context.Background(), 2)
 		Expect(info.ShareURL).To(Equal("https://stub"))
