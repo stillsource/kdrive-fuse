@@ -24,13 +24,16 @@ Every node stamps the mounting user's uid/gid (`applyOwner`, defaulted from `os.
 Sentinels via `scality/go-errors`: `ErrNotFound`, `ErrAuth`, `ErrConflict`, `ErrValidation`, `ErrRateLimit`, `ErrServer`. `HTTPError` wraps unknown 4xx/5xx. Automatic stack traces and structured properties (status code, URL, response snippet). Tokens never appear in logs or errors.
 
 ### Strict input validation
-`kdrive/validate.go` rejects names with `/`, `\x00`, control bytes (< 0x20), DEL, `.`, `..`, empty, or > 255 bytes — before any HTTP call.
+`pkg/domain/validate.go` rejects names with `/`, `\x00`, control bytes (< 0x20), DEL, `.`, `..`, empty, or > 255 bytes — before any HTTP call.
 
 ### Services pattern + functional options
-Client constructor `kdrive.New(token, driveID, opts ...Option)` with embedded `Files` and `Shares` services. Interfaces (`kdrive.Files`, `kdrive.Shares`) exposed for downstream mocking; ready-made fakes in `kdrive/kdrivefakes/`.
+Internal API client constructor `kdriveapi.New(token, driveID, opts ...Option)` with embedded `Files` and `Shares` services. The use cases depend on the `pkg/service` ports (`FileReader` / `FileWriter` / `FileManager` / `Sharer`), not the concrete client; ready-made fakes in `pkg/service/servicefakes/`.
 
 ### ≥90% test coverage (CI-enforced)
 Ginkgo v2 + Gomega; `httptest` for HTTP paths, real FUSE mount for node integration; race-clean.
+
+### Clean-architecture restructure
+Layered under `pkg/` (`domain` / `service` / `usecase` / `infrastructure` / `presentation`), behaviour unchanged. The kDrive client is now an internal adapter (`pkg/infrastructure/kdriveapi`) behind the `pkg/service` ports — no longer a public importable library. Use cases (`pkg/usecase`) hold the application logic; `pkg/infrastructure/di` is the composition root that builds the object graph from a single `Config`.
 
 ### Release automation
 `v*` tags trigger `.github/workflows/release.yml`: the test suite runs, then GoReleaser builds linux/darwin × amd64/arm64 binaries + `checksums.txt`, embeds the version via `-ldflags` (`kdrive-fuse --version`), and publishes a GitHub Release with a changelog grouped from Conventional Commits. Config in `.goreleaser.yaml`.

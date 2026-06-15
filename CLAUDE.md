@@ -4,12 +4,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## What this is
 
-A Go client library and FUSE filesystem for the Infomaniak kDrive REST API v2.
+A self-contained Go **application** that mounts an Infomaniak kDrive remote as a FUSE filesystem, backed by a disk cache. The product is the `cmd/kdrive-fuse` binary.
 
-Two products live in one repo:
-
-- **`kdrive/`** — a public, importable Go client library. Module path: `github.com/stillsource/kdrive-fuse/kdrive`.
-- **`cmd/kdrive-fuse/`** — a FUSE binary that mounts a kDrive remote as a local filesystem, backed by a disk cache.
+The kDrive REST API v2 client lives **inside** the application as an internal infrastructure adapter (`pkg/infrastructure/kdriveapi`). It is no longer a public, importable library — there is no `github.com/stillsource/kdrive-fuse/kdrive` package to depend on. The module is layered under `pkg/` following clean architecture: every other layer depends inward on `pkg/domain`.
 
 Built from scratch because WebDAV is not reliably offered on every kDrive account (the `{driveID}.connect.kdrive.infomaniak.com` endpoint returns 403 on PROPFIND with no `DAV:` header).
 
@@ -33,51 +30,78 @@ Binary config lives in `~/.config/kdrive-fuse/env` (loaded by systemd `Environme
 Required: `KDRIVE_API_TOKEN`, `KDRIVE_DRIVE_ID`, `KDRIVE_MOUNT`.
 Optional: `KDRIVE_ROOT_FOLDER_ID` (default `1`), `KDRIVE_BASE_URL`, `KDRIVE_UPLOAD_BASE_URL`, `KDRIVE_CACHE_TTL_SECONDS` (default `30`), `KDRIVE_DISK_CACHE_DIR` (default `~/.cache/kdrive-fuse`), `KDRIVE_DISK_CACHE_MAX_GB` (default `2`).
 
-Test coverage target: **≥ 90%** on `./kdrive/... ./internal/...`, enforced by CI.
+Test coverage target: **≥ 90%** on `./pkg/...` (the logic layers; `cmd` is composition glue), enforced by CI. Tests still run on `./pkg/... ./cmd/...`.
 
 ## Architecture
 
+Clean architecture, layered under `pkg/`. Dependencies point inward: `presentation` and `infrastructure` depend on `usecase` + `service` + `domain`; `usecase` depends on `service` + `domain`; `domain` depends on nothing internal.
+
 ```
-kdrive/                         public library (import path: github.com/stillsource/kdrive-fuse/kdrive)
+pkg/domain/                     canonical, dependency-free core — imports nothing internal
 ├── doc.go                      package-level godoc
-├── client.go                   Client + New(token, driveID, opts ...Option)
-├── options.go                  WithHTTPClient / WithBaseURL / WithUploadBaseURL / WithLogger / WithRetries
-├── response.go                 internal request / retry / decode plumbing
+├── file.go                     FileInfo, FileType (entity types)
+├── share.go                    ShareInfo
 ├── errors.go                   sentinels (ErrNotFound, ErrAuth, ErrConflict, ErrValidation, ErrRateLimit, ErrServer)
 │                               + HTTPError, built on scality/go-errors
-├── validate.go                 validateName / validateFolderID / validateFileID
-├── files.go                    FilesService + Files interface
-│                               (List, Stat, Download, DownloadStream, Upload, Mkdir, Delete, Rename, Move)
-├── files_options.go            UploadInput
-├── files_types.go              FileInfo, FileType
-├── shares.go                   SharesService + Shares interface (Publish)
-├── shares_types.go             ShareInfo
-├── internal/hash/xxh3.go       xxh3-64 + "xxh3:" prefix for upload hashing
-└── kdrivefakes/                FilesFake + SharesFake (stub/results/calls pattern, concurrency-safe getters)
-internal/vfs/                   FUSE implementation — not importable by downstream
-├── fs.go                       KDriveFS shared state + NewRootDirNode constructor
+└── validate.go                 ValidateName / ValidateFolderID / ValidateFileID (reject / NUL ctrl . .. 255-byte cap)
+pkg/service/                    the ports — the interfaces the use cases depend on (the "what", not the "how")
+├── file.go                     FileReader / FileWriter / FileManager
+├── cache.go                    ContentCache (disk-backed file content)
+├── sharer.go                   Sharer (public-link creation)
+├── upload_input.go             UploadInput (the write request DTO)
+└── servicefakes/               in-memory fakes for FileReader/FileWriter/FileManager/Sharer (stub/results/calls)
+pkg/usecase/                    application logic — one type per operation, wired over service ports
+├── list_dir.go                 ListDir (cache-through directory listing)
+├── read_file.go                ReadFile (content-cache read)
+├── seed_content.go             SeedContent (lazy pull of remote content for edits)
+├── commit_write.go             CommitWrite (upload + parent-cache invalidate)
+├── delete_entry.go             DeleteEntry, rename_entry.go RenameEntry, make_dir.go MakeDir
+└── share_file.go               ShareFile (defined; not yet wired into the FUSE tree — see kdshare in ROADMAP)
+pkg/infrastructure/             the adapters — concrete implementations of the service ports
+├── kdriveapi/                  internal HTTP adapter for the kDrive REST API v2 (NOT a public library)
+│   ├── client.go               Client + New(token, driveID, opts ...Option)
+│   ├── options.go              WithBaseURL / WithUploadBaseURL / WithLogger
+│   ├── response.go             request / retry / decode plumbing
+│   ├── ports.go                the service interfaces the client satisfies
+│   ├── files.go                *FilesService (List, Stat, Download, DownloadStream, Upload, Mkdir, Delete, Rename, Move)
+│   ├── shares.go               *SharesService (Publish)
+│   ├── errors.go               HTTP-status → domain-sentinel mapping
+│   └── internal/hash/xxh3.go   xxh3-64 + "xxh3:" prefix for upload hashing
+├── listingcache/memory.go      DirCache — TTL cache for directory listings; NewDirCache(ttl)
+├── contentcache/disk.go        DiskCache — LRU disk cache keyed by (fileID, last_modified_at);
+│                               NewDiskCache(dir, maxBytes, files service.FileReader)
+└── di/                         composition root — builds + memoizes the object graph from one Config
+    ├── container.go            Config + Container + NewContainer
+    ├── client.go               lazy kdriveapi.New (applies base-URL / logger options)
+    ├── content_cache.go        lazy contentcache.NewDiskCache
+    └── fuse.go                 KDriveFS() + RootNode() — delegates use-case wiring to fuse.NewKDriveFS
+pkg/presentation/fuse/          presentation layer — kernel-driven node/handle state machines
+├── doc.go                      package-level godoc
+├── fs.go                       KDriveFS (holds the use cases + uid/gid) + NewKDriveFS (FUSE composition root)
+│                               + NewRootDirNode constructor
 ├── dir.go                      DirNode — Lookup / Readdir / Getattr / Create / Mkdir / Unlink / Rmdir / Rename
-├── file.go                     FileNode + readHandle (disk-cached) + writeHandle (tempfile + upload-on-Flush)
-├── cache.go                    DirCache — TTL cache for directory listings
-└── diskcache.go                DiskCache — LRU disk cache keyed by (fileID, last_modified_at)
+└── file.go                     FileNode + readHandle (disk-cached) + writeHandle (tempfile + commit-on-close)
 cmd/kdrive-fuse/                binary entry point
-├── main.go                     signal handling + mount
-└── config/env.go               envconfig loader
+├── main.go                     --version + signal handling; builds di.NewContainer → RootNode → fs.Mount
+└── config/env.go               envconfig loader (KDRIVE_* → di.Config)
 ```
 
 ### Design choices
 
-- **Services pattern** (inspired by `google/go-github`): `client.Files.List(ctx, id)`, `client.Shares.Publish(ctx, id)`. Extensible — new resources ship as new services.
-- **Functional options** (inspired by `slack-go`): `kdrive.New(token, driveID, WithHTTPClient(...), WithLogger(...), ...)`.
-- **Interface-first for consumers**: VFS and the portfolio depend on `kdrive.Files` / `kdrive.Shares` interfaces, not `*Client`. Mockable via `kdrivefakes`.
-- **Typed errors with `scality/go-errors`**: sentinels + automatic stack traces + structured properties. Consumer checks with `errors.Is(err, kdrive.ErrNotFound)`.
-- **Strict input validation** before any HTTP call (reject `/`, NUL, control bytes, `.`/`..`, 255-byte cap).
+- **Clean architecture / ports & adapters**: `pkg/usecase` types depend only on the `pkg/service` interfaces (ports), never on `kdriveapi` directly. `pkg/infrastructure/kdriveapi` is one adapter that satisfies those ports; swapping the backend means writing a new adapter, not touching use cases.
+- **Composition roots**: `pkg/infrastructure/di` is the application composition root — `NewContainer(Config)` builds and memoizes the whole graph (API client → content cache → FUSE filesystem → root node) with lazy getters. It delegates the use-case wiring to `fuse.NewKDriveFS`, which is the FUSE composition root that constructs the listing cache and every use case over the client + content cache. `main.go` just fills a `di.Config` and asks for `RootNode()`.
+- **Services pattern** (inspired by `google/go-github`) inside the API adapter: `client.Files.List(ctx, id)`, `client.Shares.Publish(ctx, id)`.
+- **Functional options** (inspired by `slack-go`): `kdriveapi.New(token, driveID, WithBaseURL(...), WithLogger(...), ...)`.
+- **Typed errors with `scality/go-errors`** in `pkg/domain`: sentinels + automatic stack traces + structured properties. Callers check with `errors.Is(err, domain.ErrNotFound)`.
+- **Strict input validation** in `pkg/domain` before any HTTP call (reject `/`, NUL, control bytes, `.`/`..`, 255-byte cap).
+
+The DI container builds the graph once at boot, so every flow below runs through the use cases the FUSE nodes hold (`KDriveFS.ListDir`, `.ReadFile`, `.SeedContent`, `.CommitWrite`, `.DeleteEntry`, `.RenameEntry`, `.MakeDir`), which in turn call the `pkg/service` ports satisfied by the `kdriveapi` / `listingcache` / `contentcache` adapters.
 
 ### Data flow — read
 
-1. `ls` / `lookup` → `DirNode.list()` → cache hit OR `Files.List(ctx, folderID)` → cache set
+1. `ls` / `lookup` → `DirNode.list()` → `ListDir` use case → `DirCache` hit OR `FileReader.List(ctx, folderID)` → cache set
 2. `cat file` → `FileNode.Open(readonly)` returns `readHandle`
-3. First `Read` → `DiskCache.Open(fileID, last_modified_at, size)`:
+3. First `Read` → `ReadFile` use case → `ContentCache.Open(fileID, last_modified_at, size)`:
    - Cache hit: bump atime, return `*os.File`
    - Cache miss: evict LRU if over budget, download full body to `~/.cache/kdrive-fuse/{id}_{mtime}`, return handle
 4. Subsequent `Read(off)` → `ReadAt` on the cached file
@@ -89,15 +113,15 @@ Cache invalidation is implicit: a remote mtime change produces a different cache
 1. `cp src ~/kDrive-vfs/dst` (new file) → `DirNode.Create` returns a `writeHandle` with `existingFileID=0`
 2. `echo > existing` → `FileNode.Open(O_WRONLY)` returns a `writeHandle` (`existingFileID=f.info.ID`) over an **empty** working tempfile — no eager seed
 3. Kernel sends `Setattr(size=N)` for truncate — may arrive before or after `Open`; either way it's recorded (the `FileNode.wh` back-reference, or a zero `f.info.Size` seen at `Open`) and **suppresses the seed**, so a short rewrite never keeps a stale tail
-4. `Write(data, off)` → on the **first** write of a non-truncating edit, the remote content is pulled into the working file (`DownloadStream`, lazy seed); then `WriteAt`
-5. **Commit** (`Files.Upload` → patch `FileNode.info` → invalidate parent dir cache) happens once the content is final: on a `Flush` that follows a `Write` (so `close()` surfaces upload errors), or on `Release` as a safety net (writes after the last flush, a truncate with no write, a new empty file). A `Flush` before any write is a no-op
+4. `Write(data, off)` → on the **first** write of a non-truncating edit, the `SeedContent` use case pulls the remote content into the working file (`DownloadStream`, lazy seed); then `WriteAt`
+5. **Commit** (the `CommitWrite` use case: `FileWriter.Upload` → patch `FileNode.info` → invalidate parent dir cache in `DirCache`) happens once the content is final: on a `Flush` that follows a `Write` (so `close()` surfaces upload errors), or on `Release` as a safety net (writes after the last flush, a truncate with no write, a new empty file). A `Flush` before any write is a no-op
 6. `Release` → commit if still pending, then close + remove the working file
 
 Each commit is single-shot (whole file buffered, capped at 100 MB in practice). Transient failures (429 / 5xx / transport errors) are retried with exponential backoff: the body is an `io.ReadSeeker` rewound before each attempt. A non-transient 4xx (e.g. hash mismatch) fails fast without retry. Because the commit waits for a write (or `Release`), it is immune to the kernel sending FLUSH before the WRITEs on a truncating rewrite.
 
 ### Data flow — delete
 
-`rm` / `rmdir` → `DirNode.Unlink` / `Rmdir` → `removeChild` looks up the ID from the cached listing → `Files.Delete` (soft-delete, returns `cancel_id` and stays recoverable from kDrive trash) → cache invalidate.
+`rm` / `rmdir` → `DirNode.Unlink` / `Rmdir` → `removeChild` looks up the ID from the cached listing → `DeleteEntry` use case → `FileManager.Delete` (soft-delete, returns `cancel_id` and stays recoverable from kDrive trash) → cache invalidate.
 
 ## kDrive API quirks (learned the hard way)
 
@@ -124,10 +148,13 @@ Exception: `Create` uses a temporary inode (`folderID<<32 ^ len(name)`) until th
 
 ## Tests
 
-Ginkgo v2 + Gomega.
+Ginkgo v2 + Gomega. Each package has its own `*_suite_test.go` entry point.
 
-- `kdrive/*_test.go` — `httptest.Server` + handler fixtures. All files in `package kdrive` (white-box), single `TestKdrive` entry point. See `kdrive_suite_test.go` for the shared `newTestFixture` helper and `recordingHandler` (token-leak assertions).
-- `internal/vfs/*_test.go` — unit tests for pure helpers (DirCache, DiskCache, writeHandle, readHandle) plus real FUSE mount integration tests that exercise `DirNode` / `FileNode` via syscalls on a temp mountpoint. See `node_test.go` `newMountFixture` — the fake must be fully populated **before** calling `fs.Mount` (concurrent kernel goroutines make mid-test mutation race-prone).
+- `pkg/infrastructure/kdriveapi/*_test.go` — `httptest.Server` + handler fixtures, white-box. See `kdrive_suite_test.go` for the shared `newTestFixture` helper and `recordingHandler` (token-leak assertions).
+- `pkg/domain/*_test.go` — validation + error-mapping unit tests.
+- `pkg/usecase/*_test.go` — use cases driven against the `pkg/service/servicefakes` fakes (no HTTP, no mount).
+- `pkg/infrastructure/{listingcache,contentcache}/*_test.go` — unit tests for `DirCache` and the LRU `DiskCache`.
+- `pkg/presentation/fuse/*_test.go` — unit tests for the pure handle helpers (writeHandle, readHandle) plus real FUSE mount integration tests that exercise `DirNode` / `FileNode` via syscalls on a temp mountpoint. See `node_test.go` `newMountFixture` — the fakes must be fully populated **before** calling `fs.Mount` (concurrent kernel goroutines make mid-test mutation race-prone).
 
 CI (`.github/workflows/ci.yml`) runs `go vet`, the race detector, coverage gate (≥ 90%), and `golangci-lint` on every push.
 

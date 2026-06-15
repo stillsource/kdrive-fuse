@@ -1,22 +1,25 @@
 # kdrive-fuse
 
-A Go library and FUSE filesystem for [Infomaniak kDrive](https://www.infomaniak.com/en/hosting/kdrive), written from scratch against the kDrive REST API v2 (WebDAV is not offered for all accounts).
+Mount an [Infomaniak kDrive](https://www.infomaniak.com/en/hosting/kdrive) remote as a local FUSE filesystem, backed by a disk cache. Written from scratch against the kDrive REST API v2 (WebDAV is not offered for all accounts).
 
-- **`kdrive/`** — public Go client library (import path: `github.com/stillsource/kdrive-fuse/kdrive`)
-- **`cmd/kdrive-fuse/`** — FUSE binary that mounts a kDrive remote as a local filesystem with a disk cache
+`kdrive-fuse` is a self-contained application. The kDrive REST client is an **internal** infrastructure adapter inside the binary — it is not a public, importable Go library.
 
 ## Features
 
-- Services-based client (`client.Files.*`, `client.Shares.*`) inspired by `google/go-github`
-- Functional options for HTTP client, base URLs, logger, retries
-- Typed sentinel errors (`ErrNotFound`, `ErrAuth`, `ErrConflict`, `ErrValidation`, `ErrRateLimit`) with `scality/go-errors` stack traces and structured properties
-- Strict input validation on filenames (reject `/`, NUL, control bytes, `.`/`..`, 255-byte cap)
+- Mounts a kDrive drive (or any subfolder) as a normal local directory tree — `ls`, `cat`, `cp`, `rm`, `mkdir`, `mv` just work
+- LRU disk cache at `~/.cache/kdrive-fuse/{fileID}_{last_modified_at}` — invalidates automatically when the remote file changes; configurable byte budget
+- Streaming downloads with HTTP `Range`; first read fetches the body, subsequent reads are local
+- In-place edits of existing files, committed on close (see notes below)
+- Files and directories owned by the mounting user, so file managers can delete/edit them
+- Soft deletes — removed files stay recoverable from the kDrive trash
+- Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff, including uploads
 - `xxh3` content hashing for uploads (kDrive requirement)
-- Streaming downloads with HTTP `Range`
-- Edit mode for existing files (`Upload` with `ExistingFileID`)
-- Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff — including uploads, whose `io.ReadSeeker` body is rewound before each attempt
-- LRU disk cache (FUSE): `~/.cache/kdrive-fuse/{fileID}_{last_modified_at}` invalidates automatically when the remote changes
+- Typed errors internally with `scality/go-errors`; tokens never appear in logs or errors
 - ≥90% test coverage, CI-enforced (Ginkgo v2 + Gomega, `httptest`-based HTTP tests + real FUSE mount integration tests)
+
+## Requirements
+
+A FUSE userspace helper must be installed: `fuse3` on Linux (`sudo apt-get install fuse3` / `sudo pacman -S fuse3`), or [macFUSE](https://macfuse.io) on macOS.
 
 ## Installation
 
@@ -31,64 +34,11 @@ Or from source:
 ```bash
 git clone https://github.com/stillsource/kdrive-fuse
 cd kdrive-fuse
-make build
-./bin/kdrive-fuse
+make build            # produces ./bin/kdrive-fuse
+make install          # optional: copies the binary to ~/bin
 ```
 
-## Library usage
-
-```go
-import "github.com/stillsource/kdrive-fuse/kdrive"
-
-client := kdrive.New("YOUR_TOKEN", "YOUR_DRIVE_ID",
-    kdrive.WithLogger(slog.Default()),
-)
-
-infos, err := client.Files.List(ctx, rootFolderID)
-if err != nil {
-    if errors.Is(err, kdrive.ErrAuth) {
-        // rotate token
-    }
-}
-
-for _, f := range infos {
-    fmt.Println(f.ID, f.Name, f.Size, f.IsDir())
-}
-
-// Upload a new file
-info, err := client.Files.Upload(ctx, kdrive.UploadInput{
-    ParentID: rootFolderID,
-    Name:     "hello.txt",
-    Body:     bytes.NewReader([]byte("hi")),
-    Size:     2,
-})
-
-// Edit an existing file (replace content)
-_, err = client.Files.Upload(ctx, kdrive.UploadInput{
-    ExistingFileID: info.ID,
-    Body:           bytes.NewReader([]byte("updated")),
-    Size:           7,
-})
-
-// Share a file
-share, err := client.Shares.Publish(ctx, info.ID)
-fmt.Println(share.ShareURL)
-```
-
-Mocking in your own tests:
-
-```go
-import "github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
-
-fake := &kdrivefakes.FilesFake{
-    ListResults: map[int64]kdrivefakes.ListResult{
-        1: {Files: []kdrive.FileInfo{{ID: 10, Name: "hello.txt"}}},
-    },
-}
-var _ kdrive.Files = fake
-```
-
-## FUSE binary
+## Usage
 
 Point it at a kDrive drive via environment variables:
 
