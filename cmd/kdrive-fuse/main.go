@@ -15,9 +15,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse/config"
-	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
-	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi"
-	kdrivefuse "github.com/stillsource/kdrive-fuse/pkg/presentation/fuse"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/di"
 )
 
 // version is the build version, overridden at release time via
@@ -49,27 +47,28 @@ func main() {
 		os.Exit(1)
 	}
 
-	client := kdriveapi.New(cfg.APIToken, cfg.DriveID,
-		kdriveapi.WithBaseURL(cfg.BaseURL),
-		kdriveapi.WithUploadBaseURL(cfg.UploadBaseURL),
-		kdriveapi.WithLogger(log),
-	)
-
 	cacheDir := cfg.DiskCacheDir
 	if cacheDir == "" {
 		home, _ := os.UserHomeDir()
 		cacheDir = filepath.Join(home, ".cache", "kdrive-fuse")
 	}
-	maxBytes := int64(cfg.DiskCacheMaxGB) * 1024 * 1024 * 1024
-	disk, err := contentcache.NewDiskCache(cacheDir, maxBytes, client.Files)
+
+	c := di.NewContainer(di.Config{
+		Token:          cfg.APIToken,
+		DriveID:        cfg.DriveID,
+		RootFolderID:   cfg.RootFolderID,
+		BaseURL:        cfg.BaseURL,
+		UploadBaseURL:  cfg.UploadBaseURL,
+		CacheTTL:       time.Duration(cfg.CacheTTLSecs) * time.Second,
+		DiskCacheDir:   cacheDir,
+		DiskCacheBytes: int64(cfg.DiskCacheMaxGB) * 1024 * 1024 * 1024,
+		Logger:         log,
+	})
+	root, err := c.RootNode()
 	if err != nil {
 		log.Error("disk cache", "err", err)
 		os.Exit(1)
 	}
-
-	cacheTTL := time.Duration(cfg.CacheTTLSecs) * time.Second
-	kdfs := kdrivefuse.NewKDriveFS(client.Files, cacheTTL, disk)
-	root := kdrivefuse.NewRootDirNode(kdfs, cfg.RootFolderID)
 
 	attrTTL := 30 * time.Second
 	server, err := fs.Mount(cfg.Mount, root, &fs.Options{
