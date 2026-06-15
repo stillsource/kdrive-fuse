@@ -108,6 +108,15 @@ var _ = Describe("DirNode via FUSE mount — read paths", func() {
 		Expect(info.Size()).To(Equal(int64(6)))
 	})
 
+	It("Lookup reports the mounting user as owner so files stay deletable", func() {
+		info, err := os.Stat(filepath.Join(fx.Dir, "hello.txt"))
+		Expect(err).NotTo(HaveOccurred())
+		st, ok := info.Sys().(*syscall.Stat_t)
+		Expect(ok).To(BeTrue())
+		Expect(st.Uid).To(Equal(uint32(os.Getuid())))
+		Expect(st.Gid).To(Equal(uint32(os.Getgid())))
+	})
+
 	It("Lookup returns ENOENT for missing entries", func() {
 		_, err := os.Stat(filepath.Join(fx.Dir, "no-such"))
 		Expect(errors.Is(err, os.ErrNotExist)).To(BeTrue())
@@ -207,11 +216,19 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 
 var _ = Describe("DirNode unit — no mount", func() {
 	It("Getattr returns directory mode", func() {
-		d := &DirNode{}
+		d := &DirNode{kdfs: &KDriveFS{}}
 		var out fuse.AttrOut
 		errno := d.Getattr(context.Background(), nil, &out)
 		Expect(errno).To(BeZero())
 		Expect(out.Mode & syscall.S_IFDIR).NotTo(BeZero())
+	})
+
+	It("Getattr stamps the mounting user as owner, not root", func() {
+		d := &DirNode{kdfs: &KDriveFS{Uid: 4242, Gid: 4343}}
+		var out fuse.AttrOut
+		Expect(d.Getattr(context.Background(), nil, &out)).To(BeZero())
+		Expect(out.Owner.Uid).To(Equal(uint32(4242)))
+		Expect(out.Owner.Gid).To(Equal(uint32(4343)))
 	})
 
 	It("list propagates API errors", func() {
@@ -246,7 +263,7 @@ var _ = Describe("DirNode unit — no mount", func() {
 
 var _ = Describe("FileNode unit — no mount", func() {
 	It("Getattr reports file mode and size", func() {
-		f := &FileNode{info: kdrive.FileInfo{Size: 12, Type: kdrive.FileTypeFile}}
+		f := &FileNode{kdfs: &KDriveFS{}, info: kdrive.FileInfo{Size: 12, Type: kdrive.FileTypeFile}}
 		var out fuse.AttrOut
 		errno := f.Getattr(context.Background(), nil, &out)
 		Expect(errno).To(BeZero())
@@ -254,8 +271,16 @@ var _ = Describe("FileNode unit — no mount", func() {
 		Expect(out.Mode & syscall.S_IFREG).NotTo(BeZero())
 	})
 
+	It("Getattr stamps the mounting user as owner, not root", func() {
+		f := &FileNode{kdfs: &KDriveFS{Uid: 4242, Gid: 4343}, info: kdrive.FileInfo{Type: kdrive.FileTypeFile}}
+		var out fuse.AttrOut
+		Expect(f.Getattr(context.Background(), nil, &out)).To(BeZero())
+		Expect(out.Owner.Uid).To(Equal(uint32(4242)))
+		Expect(out.Owner.Gid).To(Equal(uint32(4343)))
+	})
+
 	It("Setattr updates size", func() {
-		f := &FileNode{info: kdrive.FileInfo{Size: 12}}
+		f := &FileNode{kdfs: &KDriveFS{}, info: kdrive.FileInfo{Size: 12}}
 		in := &fuse.SetAttrIn{SetAttrInCommon: fuse.SetAttrInCommon{Valid: fuse.FATTR_SIZE, Size: 0}}
 		var out fuse.AttrOut
 		errno := f.Setattr(context.Background(), nil, in, &out)

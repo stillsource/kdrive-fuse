@@ -126,6 +126,8 @@ Run it as a systemd user service to auto-mount at login — see the example unit
 
 In-place rewrites through the mount (`echo > existing`, truncating edits) are committed on close: the working file is filled lazily and uploaded once the content is final, so the kernel's FLUSH/WRITE ordering can't drop data.
 
+Files and directories are owned by the user who mounted the filesystem (kDrive has no POSIX ownership of its own). Without this they would default to `root`, and a file manager like Nautilus — which decides "can delete / can trash" from write access to the parent directory — would refuse to delete or edit them.
+
 See [`ROADMAP.md`](./ROADMAP.md) for planned work.
 
 ## Development
