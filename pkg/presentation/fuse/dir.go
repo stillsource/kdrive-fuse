@@ -1,4 +1,4 @@
-package vfs
+package fuse
 
 import (
 	"context"
@@ -37,15 +37,7 @@ func (d *DirNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut)
 }
 
 func (d *DirNode) list(ctx context.Context) ([]domain.FileInfo, error) {
-	if files, ok := d.kdfs.Cache.Get(d.folderID); ok {
-		return files, nil
-	}
-	files, err := d.kdfs.Files.List(ctx, d.folderID)
-	if err != nil {
-		return nil, err
-	}
-	d.kdfs.Cache.Set(d.folderID, files)
-	return files, nil
+	return d.kdfs.ListDir.Execute(ctx, d.folderID)
 }
 
 // Readdir streams directory entries from the cached (or freshly fetched) listing.
@@ -100,12 +92,11 @@ func (d *DirNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (
 
 // Mkdir creates a new directory.
 func (d *DirNode) Mkdir(ctx context.Context, name string, _ uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
-	info, err := d.kdfs.Files.Mkdir(ctx, d.folderID, name)
+	info, err := d.kdfs.MakeDir.Execute(ctx, d.folderID, name)
 	if err != nil {
 		slog.Warn("mkdir failed", "parent", d.folderID, "name", name, "err", err)
 		return nil, syscall.EIO
 	}
-	d.kdfs.Cache.Invalidate(d.folderID)
 
 	out.Mode = 0o755 | syscall.S_IFDIR
 	out.SetAttrTimeout(30 * time.Second)
@@ -123,9 +114,9 @@ func (d *DirNode) Create(ctx context.Context, name string, _ uint32, _ uint32, o
 	node := &FileNode{kdfs: d.kdfs, info: domain.FileInfo{Name: name}}
 	child := d.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFREG, Ino: tmpIno})
 
-	wh, err := newWriteHandle(d.kdfs.Files, d.folderID, 0, name, func(info domain.FileInfo) {
+	wh, err := newWriteHandle(d.kdfs.SeedContent, d.kdfs.CommitWrite, d.folderID, 0, name, func(info domain.FileInfo) {
+		// CommitWrite already invalidates the parent listing; only patch the node.
 		node.info = info
-		d.kdfs.Cache.Invalidate(d.folderID)
 	})
 	if err != nil {
 		slog.Error("create tempfile", "err", err)
@@ -164,11 +155,10 @@ func (d *DirNode) removeChild(ctx context.Context, name string, wantDir bool) sy
 			}
 			return syscall.EISDIR
 		}
-		if err := d.kdfs.Files.Delete(ctx, f.ID); err != nil {
+		if err := d.kdfs.DeleteEntry.Execute(ctx, f.ID, d.folderID); err != nil {
 			slog.Warn("delete failed", "file", f.ID, "err", err)
 			return syscall.EIO
 		}
-		d.kdfs.Cache.Invalidate(d.folderID)
 		return 0
 	}
 	return syscall.ENOENT
@@ -196,19 +186,9 @@ func (d *DirNode) Rename(ctx context.Context, name string, newParent fs.InodeEmb
 		return syscall.EXDEV
 	}
 
-	if target.folderID != d.folderID {
-		if err := d.kdfs.Files.Move(ctx, src.ID, target.folderID); err != nil {
-			slog.Warn("move failed", "file", src.ID, "dest", target.folderID, "err", err)
-			return syscall.EIO
-		}
+	if err := d.kdfs.RenameEntry.Execute(ctx, src.ID, d.folderID, target.folderID, name, newName); err != nil {
+		slog.Warn("rename failed", "file", src.ID, "dest", target.folderID, "newName", newName, "err", err)
+		return syscall.EIO
 	}
-	if newName != name {
-		if _, err := d.kdfs.Files.Rename(ctx, src.ID, newName); err != nil {
-			slog.Warn("rename failed", "file", src.ID, "err", err)
-			return syscall.EIO
-		}
-	}
-	d.kdfs.Cache.Invalidate(d.folderID)
-	target.kdfs.Cache.Invalidate(target.folderID)
 	return 0
 }

@@ -22,8 +22,8 @@ jobs:
       - name: Tests with race + coverage
         run: |
           go test -race -coverprofile=coverage.out -covermode=atomic \
-            -coverpkg=./kdrive/...,./internal/... \
-            ./kdrive/... ./internal/...
+            -coverpkg=./pkg/...,./cmd/... \
+            ./pkg/... ./cmd/...
       - name: Coverage gate (minimum 90%)
         run: |
           pct=$(go tool cover -func=coverage.out | awk '/^total:/{print $3}' | tr -d '%')

@@ -1,4 +1,4 @@
-package vfs
+package fuse
 
 import (
 	"context"
@@ -15,6 +15,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
+	"github.com/stillsource/kdrive-fuse/pkg/usecase"
 )
 
 // FileNode represents a kDrive file.
@@ -86,9 +87,9 @@ func (f *FileNode) Open(_ context.Context, flags uint32) (fs.FileHandle, uint32,
 		return nil, 0, syscall.EIO
 	}
 
-	wh, err := newWriteHandle(f.kdfs.Files, pDir.folderID, f.info.ID, f.info.Name, func(info domain.FileInfo) {
+	wh, err := newWriteHandle(f.kdfs.SeedContent, f.kdfs.CommitWrite, pDir.folderID, f.info.ID, f.info.Name, func(info domain.FileInfo) {
+		// CommitWrite already invalidates the parent listing; only patch the node.
 		f.info = info
-		f.kdfs.Cache.Invalidate(pDir.folderID)
 	})
 	if err != nil {
 		return nil, 0, syscall.EIO
@@ -128,11 +129,11 @@ func (h *readHandle) ensureOpen(ctx context.Context) syscall.Errno {
 		return 0
 	}
 	h.opened = true
-	if h.kdfs.DiskCache == nil {
+	if h.kdfs.ReadFile == nil {
 		h.openErr = errNoCache
 		return syscall.EIO
 	}
-	f, err := h.kdfs.DiskCache.Open(ctx, h.info.ID, h.info.LastModifiedAt, h.info.Size)
+	f, err := h.kdfs.ReadFile.Execute(ctx, h.info.ID, h.info.LastModifiedAt, h.info.Size)
 	if err != nil {
 		slog.Warn("disk cache open", "id", h.info.ID, "err", err)
 		h.openErr = err
@@ -171,7 +172,8 @@ var errNoCache = errors.New("disk cache not configured")
 // server once (on Flush after the first write, with Release as a safety net).
 // existingFileID > 0 enters edit mode (replace remote content); 0 creates a new file.
 type writeHandle struct {
-	files          fileClient
+	seed           *usecase.SeedContent
+	commit         *usecase.CommitWrite
 	parentID       int64
 	existingFileID int64
 	name           string
@@ -201,13 +203,14 @@ var _ fs.FileWriter = (*writeHandle)(nil)
 var _ fs.FileFlusher = (*writeHandle)(nil)
 var _ fs.FileReleaser = (*writeHandle)(nil)
 
-func newWriteHandle(files fileClient, parentID, existingFileID int64, name string, onUploaded func(domain.FileInfo)) (*writeHandle, error) {
+func newWriteHandle(seed *usecase.SeedContent, commit *usecase.CommitWrite, parentID, existingFileID int64, name string, onUploaded func(domain.FileInfo)) (*writeHandle, error) {
 	tmp, err := os.CreateTemp("", "kdrive-upload-*")
 	if err != nil {
 		return nil, err
 	}
 	return &writeHandle{
-		files:          files,
+		seed:           seed,
+		commit:         commit,
 		parentID:       parentID,
 		existingFileID: existingFileID,
 		name:           name,
@@ -239,7 +242,7 @@ func (h *writeHandle) seedLocked(ctx context.Context) syscall.Errno {
 	if h.seeded || h.truncated || h.existingFileID == 0 {
 		return 0
 	}
-	rc, err := h.files.DownloadStream(ctx, h.existingFileID, 0, 0)
+	rc, err := h.seed.Execute(ctx, h.existingFileID)
 	if err != nil {
 		slog.Error("seed download", "id", h.existingFileID, "err", err)
 		return syscall.EIO
@@ -276,13 +279,14 @@ func (h *writeHandle) commitLocked(ctx context.Context) syscall.Errno {
 		slog.Error("commit seek", "err", err)
 		return syscall.EIO
 	}
-	info, err := h.files.Upload(ctx, service.UploadInput{
+	in := service.UploadInput{
 		ParentID:       h.parentID,
 		ExistingFileID: h.existingFileID,
 		Name:           h.name,
 		Body:           h.tmp,
 		Size:           stat.Size(),
-	})
+	}
+	info, err := h.commit.Execute(ctx, in, h.parentID)
 	if err != nil {
 		slog.Error("commit upload",
 			"name", h.name,

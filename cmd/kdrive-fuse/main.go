@@ -15,9 +15,9 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse/config"
-	"github.com/stillsource/kdrive-fuse/internal/vfs"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi"
+	kdrivefuse "github.com/stillsource/kdrive-fuse/pkg/presentation/fuse"
 )
 
 // version is the build version, overridden at release time via
@@ -68,8 +68,8 @@ func main() {
 	}
 
 	cacheTTL := time.Duration(cfg.CacheTTLSecs) * time.Second
-	kdfs := vfs.NewKDriveFS(client.Files, cacheTTL, disk)
-	root := vfs.NewRootDirNode(kdfs, cfg.RootFolderID)
+	kdfs := kdrivefuse.NewKDriveFS(client.Files, cacheTTL, disk)
+	root := kdrivefuse.NewRootDirNode(kdfs, cfg.RootFolderID)
 
 	attrTTL := 30 * time.Second
 	server, err := fs.Mount(cfg.Mount, root, &fs.Options{

@@ -1,4 +1,4 @@
-package vfs
+package fuse
 
 import (
 	"context"
@@ -13,18 +13,32 @@ import (
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/listingcache"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
+	"github.com/stillsource/kdrive-fuse/pkg/usecase"
 )
 
 var _ = Describe("writeHandle", func() {
 	var (
 		fake *servicefakes.FilesFake
 		ctx  context.Context
+		seed *usecase.SeedContent
+		comm *usecase.CommitWrite
 	)
 
 	BeforeEach(func() {
 		fake = &servicefakes.FilesFake{}
 		ctx = context.Background()
+		// Wire the two use cases the writeHandle drives over the same fake.
+		// CommitWrite needs a listing cache to invalidate; a real one is fine.
+		seed = usecase.NewSeedContent(fake)
+		comm = usecase.NewCommitWrite(fake, listingcache.NewDirCache(time.Second))
 	})
+
+	// newWH builds a writeHandle over the wired use cases — keeps call sites terse.
+	newWH := func(parentID, existingFileID int64, name string, onUploaded func(domain.FileInfo)) *writeHandle {
+		wh, err := newWriteHandle(seed, comm, parentID, existingFileID, name, onUploaded)
+		Expect(err).NotTo(HaveOccurred())
+		return wh
+	}
 
 	// uploadRecorder returns an UploadStub that records every uploaded body.
 	uploadRecorder := func(bodies *[]string) func(context.Context, service.UploadInput) (domain.FileInfo, error) {
@@ -38,7 +52,7 @@ var _ = Describe("writeHandle", func() {
 	It("a Flush before any write does not upload; the written content is committed on the next Flush", func() {
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
+		wh := newWH(1, 0, "x.txt", nil)
 
 		Expect(wh.Flush(ctx)).To(BeZero()) // premature flush, nothing written yet
 		Expect(bodies).To(BeEmpty())       // must NOT upload an empty buffer
@@ -53,7 +67,7 @@ var _ = Describe("writeHandle", func() {
 	It("commits the final buffer on Release when writes arrive after the last Flush", func() {
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
+		wh := newWH(1, 0, "x.txt", nil)
 
 		Expect(wh.Flush(ctx)).To(BeZero()) // flush before the write (the kernel's FLUSH-before-WRITE order)
 		_, _ = wh.Write(ctx, []byte("late"), 0)
@@ -67,7 +81,7 @@ var _ = Describe("writeHandle", func() {
 		}
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil) // edit existing id=10
+		wh := newWH(1, 10, "x.txt", nil) // edit existing id=10
 
 		wh.truncateTo(0) // kernel truncate (Setattr size=0)
 		_, _ = wh.Write(ctx, []byte("short"), 0)
@@ -81,7 +95,7 @@ var _ = Describe("writeHandle", func() {
 		}
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil) // edit, not truncated
+		wh := newWH(1, 10, "x.txt", nil) // edit, not truncated
 
 		_, _ = wh.Write(ctx, []byte("xy"), 2)
 		Expect(wh.Release(ctx)).To(BeZero())
@@ -94,7 +108,7 @@ var _ = Describe("writeHandle", func() {
 		}
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil)
+		wh := newWH(1, 10, "x.txt", nil)
 
 		wh.truncateTo(0) // ": > existing" — truncate, no write
 		Expect(wh.Release(ctx)).To(BeZero())
@@ -104,13 +118,13 @@ var _ = Describe("writeHandle", func() {
 	It("uploads a new empty file on Release even without writes", func() {
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh, _ := newWriteHandle(fake, 1, 0, "empty.txt", nil) // new file
+		wh := newWH(1, 0, "empty.txt", nil) // new file
 		Expect(wh.Release(ctx)).To(BeZero())
 		Expect(bodies).To(Equal([]string{""}))
 	})
 
 	It("does not upload an existing file opened and closed without changes", func() {
-		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil) // edit, untouched
+		wh := newWH(1, 10, "x.txt", nil) // edit, untouched
 		Expect(wh.Flush(ctx)).To(BeZero())
 		Expect(wh.Release(ctx)).To(BeZero())
 		Expect(fake.GetUploadCalls()).To(BeEmpty())
@@ -120,14 +134,14 @@ var _ = Describe("writeHandle", func() {
 		fake.UploadStub = func(_ context.Context, _ service.UploadInput) (domain.FileInfo, error) {
 			return domain.FileInfo{}, domain.ErrServer
 		}
-		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
+		wh := newWH(1, 0, "x.txt", nil)
 		_, _ = wh.Write(ctx, []byte("a"), 0)
 		Expect(wh.Flush(ctx)).NotTo(BeZero())
 		_ = wh.Release(ctx)
 	})
 
 	It("Release closes and removes the tempfile, idempotently", func() {
-		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
+		wh := newWH(1, 0, "x.txt", nil)
 		name := wh.tmp.Name()
 		Expect(wh.Release(ctx)).To(BeZero())
 		Expect(wh.Release(ctx)).To(BeZero()) // second Release is a no-op
@@ -178,7 +192,7 @@ var _ = Describe("readHandle", func() {
 	})
 
 	It("returns EIO when DiskCache is nil", func() {
-		kdfsNoCache := &KDriveFS{Files: fake, Cache: listingcache.NewDirCache(time.Second)}
+		kdfsNoCache := &KDriveFS{} // no ReadFile use case wired
 		h := &readHandle{kdfs: kdfsNoCache, info: domain.FileInfo{ID: 10}}
 		_, errno := h.Read(ctx, make([]byte, 1), 0)
 		Expect(errno).NotTo(BeZero())

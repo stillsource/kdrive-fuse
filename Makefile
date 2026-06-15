@@ -12,15 +12,15 @@ help:
 	@echo "  clean          - remove build artifacts"
 
 test:
-	go test ./pkg/... ./internal/...
+	go test ./pkg/... ./cmd/...
 
 test-race:
-	go test -race ./pkg/... ./internal/...
+	go test -race ./pkg/... ./cmd/...
 
 test-coverage:
 	go test -race -coverprofile=coverage.out -covermode=atomic \
-		-coverpkg=./pkg/...,./internal/... \
-		./pkg/... ./internal/...
+		-coverpkg=./pkg/...,./cmd/... \
+		./pkg/... ./cmd/...
 	go tool cover -html=coverage.out -o coverage.html
 	@go tool cover -func=coverage.out | awk '/^total:/{print "total: "$$3}'
 

@@ -1,4 +1,4 @@
-package vfs
+package fuse
 
 import (
 	"testing"
@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/gomega"
 )
 
-func TestVFS(t *testing.T) {
+func TestFUSE(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "vfs Suite")
+	RunSpecs(t, "FUSE Suite")
 }

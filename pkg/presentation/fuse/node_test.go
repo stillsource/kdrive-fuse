@@ -1,4 +1,4 @@
-package vfs
+package fuse
 
 import (
 	"bytes"
@@ -21,6 +21,7 @@ import (
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/listingcache"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
+	"github.com/stillsource/kdrive-fuse/pkg/usecase"
 )
 
 // mountFixture spins up an in-process FUSE mount backed by an in-memory Files fake.
@@ -239,7 +240,7 @@ var _ = Describe("DirNode unit — no mount", func() {
 			ListResults: map[int64]servicefakes.ListResult{1: {Err: domain.ErrNotFound}},
 		}
 		d := &DirNode{
-			kdfs:     &KDriveFS{Files: fake, Cache: listingcache.NewDirCache(time.Second)},
+			kdfs:     &KDriveFS{ListDir: usecase.NewListDir(fake, listingcache.NewDirCache(time.Second))},
 			folderID: 1,
 		}
 		_, err := d.list(context.Background())
@@ -253,7 +254,7 @@ var _ = Describe("DirNode unit — no mount", func() {
 			},
 		}
 		d := &DirNode{
-			kdfs:     &KDriveFS{Files: fake, Cache: listingcache.NewDirCache(time.Second)},
+			kdfs:     &KDriveFS{ListDir: usecase.NewListDir(fake, listingcache.NewDirCache(time.Second))},
 			folderID: 1,
 		}
 		_, err := d.list(context.Background())
