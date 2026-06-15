@@ -7,3 +7,4 @@ coverage.html
 .env.*
 *.swp
 .DS_Store
+dist/

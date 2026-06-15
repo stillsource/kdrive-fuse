@@ -20,6 +20,8 @@ A Go library and FUSE filesystem for [Infomaniak kDrive](https://www.infomaniak.
 
 ## Installation
 
+Prebuilt binaries for Linux and macOS (amd64 + arm64) are attached to each [GitHub Release](https://github.com/stillsource/kdrive-fuse/releases) (verify with `checksums.txt`). Or install with Go:
+
 ```bash
 go install github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse@latest
 ```
@@ -137,6 +139,14 @@ make build         # build binary
 ```
 
 CI enforces `go vet`, race-detector tests, coverage ≥ 90%, and `golangci-lint` on every push.
+
+## Releasing
+
+Push a semver tag (`vX.Y.Z`) — the release workflow runs the test suite, then [GoReleaser](https://goreleaser.com) cross-compiles the binaries, writes `checksums.txt`, and publishes a GitHub Release with a changelog grouped from Conventional Commits. The version is embedded via `-ldflags` and reported by `kdrive-fuse --version`.
+
+```bash
+git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.yml
+```
 
 ## License
 
