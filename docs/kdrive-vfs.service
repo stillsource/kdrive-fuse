@@ -1,0 +1,28 @@
+# Example systemd *user* unit for kdrive-fuse.
+#
+# Install:
+#   mkdir -p ~/.config/systemd/user
+#   cp docs/kdrive-vfs.service ~/.config/systemd/user/
+#   # put KDRIVE_API_TOKEN / KDRIVE_DRIVE_ID / KDRIVE_MOUNT in the EnvironmentFile below:
+#   mkdir -p ~/.config/kdrive-fuse && $EDITOR ~/.config/kdrive-fuse/env
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now kdrive-vfs.service
+#
+# Logs:  journalctl --user -u kdrive-vfs.service -f
+
+[Unit]
+Description=kDrive virtual filesystem
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# %h expands to the user's home directory.
+EnvironmentFile=%h/.config/kdrive-fuse/env
+ExecStart=%h/bin/kdrive-fuse
+ExecStop=/usr/bin/fusermount -u %h/kDrive-vfs
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=default.target
