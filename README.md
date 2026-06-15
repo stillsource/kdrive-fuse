@@ -16,7 +16,7 @@ A Go library and FUSE filesystem for [Infomaniak kDrive](https://www.infomaniak.
 - Edit mode for existing files (`Upload` with `ExistingFileID`)
 - Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff — including uploads, whose `io.ReadSeeker` body is rewound before each attempt
 - LRU disk cache (FUSE): `~/.cache/kdrive-fuse/{fileID}_{last_modified_at}` invalidates automatically when the remote changes
-- 91% test coverage (Ginkgo v2 + Gomega, `httptest`-based HTTP tests + real FUSE mount integration tests)
+- ≥90% test coverage, CI-enforced (Ginkgo v2 + Gomega, `httptest`-based HTTP tests + real FUSE mount integration tests)
 
 ## Installation
 
@@ -105,7 +105,7 @@ export KDRIVE_CACHE_TTL_SECONDS="30"
 kdrive-fuse
 ```
 
-Run it as a systemd user service to auto-mount at login (example unit in `docs/kdrive-vfs.service` if you need it).
+Run it as a systemd user service to auto-mount at login — see the example unit [`docs/kdrive-vfs.service`](./docs/kdrive-vfs.service).
 
 ## Supported operations
 
@@ -145,7 +145,7 @@ CI enforces `go vet`, race-detector tests, coverage ≥ 90%, and `golangci-lint`
 Push a semver tag (`vX.Y.Z`) — the release workflow runs the test suite, then [GoReleaser](https://goreleaser.com) cross-compiles the binaries, writes `checksums.txt`, and publishes a GitHub Release with a changelog grouped from Conventional Commits. The version is embedded via `-ldflags` and reported by `kdrive-fuse --version`.
 
 ```bash
-git tag v0.2.0 && git push origin v0.2.0   # triggers .github/workflows/release.yml
+git tag v0.3.0 && git push origin v0.3.0   # triggers .github/workflows/release.yml
 ```
 
 ## License
