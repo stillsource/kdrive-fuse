@@ -23,51 +23,111 @@ var _ = Describe("writeHandle", func() {
 		ctx = context.Background()
 	})
 
-	It("buffers writes then uploads on Flush", func() {
-		fake.UploadStub = func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
+	// uploadRecorder returns an UploadStub that records every uploaded body.
+	uploadRecorder := func(bodies *[]string) func(context.Context, kdrive.UploadInput) (kdrive.FileInfo, error) {
+		return func(_ context.Context, in kdrive.UploadInput) (kdrive.FileInfo, error) {
 			data, _ := io.ReadAll(in.Body)
-			Expect(string(data)).To(Equal("hello"))
-			Expect(in.Size).To(Equal(int64(5)))
-			Expect(in.Name).To(Equal("x.txt"))
-			return kdrive.FileInfo{ID: 99, Name: in.Name, Size: in.Size}, nil
+			*bodies = append(*bodies, string(data))
+			return kdrive.FileInfo{ID: 99, Name: in.Name, Size: int64(len(data))}, nil
 		}
-		var captured kdrive.FileInfo
-		wh, err := newWriteHandle(fake, 1, 0, "x.txt", func(info kdrive.FileInfo) {
-			captured = info
-		})
-		Expect(err).NotTo(HaveOccurred())
+	}
 
-		n, errno := wh.Write(ctx, []byte("hello"), 0)
-		Expect(errno).To(BeZero())
-		Expect(n).To(Equal(uint32(5)))
+	It("a Flush before any write does not upload; the written content is committed on the next Flush", func() {
+		var bodies []string
+		fake.UploadStub = uploadRecorder(&bodies)
+		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
 
-		Expect(wh.Flush(ctx)).To(BeZero())
-		Expect(captured.ID).To(Equal(int64(99)))
+		Expect(wh.Flush(ctx)).To(BeZero()) // premature flush, nothing written yet
+		Expect(bodies).To(BeEmpty())       // must NOT upload an empty buffer
 
-		// Second flush is a no-op (already uploaded).
-		Expect(wh.Flush(ctx)).To(BeZero())
-		Expect(fake.UploadCalls).To(HaveLen(1))
-
-		Expect(wh.Release(ctx)).To(BeZero())
+		_, _ = wh.Write(ctx, []byte("data"), 0)
+		Expect(wh.Flush(ctx)).To(BeZero()) // close flush, after the write
+		Expect(bodies).To(Equal([]string{"data"}))
+		Expect(wh.Release(ctx)).To(BeZero()) // already uploaded -> no second upload
+		Expect(bodies).To(Equal([]string{"data"}))
 	})
 
-	It("returns EIO when upload fails", func() {
+	It("commits the final buffer on Release when writes arrive after the last Flush", func() {
+		var bodies []string
+		fake.UploadStub = uploadRecorder(&bodies)
+		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
+
+		Expect(wh.Flush(ctx)).To(BeZero()) // flush before the write (the kernel's FLUSH-before-WRITE order)
+		_, _ = wh.Write(ctx, []byte("late"), 0)
+		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(bodies).To(Equal([]string{"late"})) // Release is the safety net
+	})
+
+	It("a truncate then write uploads only the new bytes (no stale tail)", func() {
+		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+			10: {Data: []byte("ABCDEFGHIJ")},
+		}
+		var bodies []string
+		fake.UploadStub = uploadRecorder(&bodies)
+		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil) // edit existing id=10
+
+		wh.truncateTo(0) // kernel truncate (Setattr size=0)
+		_, _ = wh.Write(ctx, []byte("short"), 0)
+		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(bodies).To(Equal([]string{"short"})) // not "shortFGHIJ"
+	})
+
+	It("seeds remote content lazily then overlays a partial write", func() {
+		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+			10: {Data: []byte("ABCDEFGHIJ")},
+		}
+		var bodies []string
+		fake.UploadStub = uploadRecorder(&bodies)
+		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil) // edit, not truncated
+
+		_, _ = wh.Write(ctx, []byte("xy"), 2)
+		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(bodies).To(Equal([]string{"ABxyEFGHIJ"}))
+	})
+
+	It("uploads an empty buffer on Release for a truncate with no write", func() {
+		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+			10: {Data: []byte("ABCDEFGHIJ")},
+		}
+		var bodies []string
+		fake.UploadStub = uploadRecorder(&bodies)
+		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil)
+
+		wh.truncateTo(0) // ": > existing" — truncate, no write
+		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(bodies).To(Equal([]string{""}))
+	})
+
+	It("uploads a new empty file on Release even without writes", func() {
+		var bodies []string
+		fake.UploadStub = uploadRecorder(&bodies)
+		wh, _ := newWriteHandle(fake, 1, 0, "empty.txt", nil) // new file
+		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(bodies).To(Equal([]string{""}))
+	})
+
+	It("does not upload an existing file opened and closed without changes", func() {
+		wh, _ := newWriteHandle(fake, 1, 10, "x.txt", nil) // edit, untouched
+		Expect(wh.Flush(ctx)).To(BeZero())
+		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(fake.GetUploadCalls()).To(BeEmpty())
+	})
+
+	It("surfaces upload errors on Flush (so close() fails)", func() {
 		fake.UploadStub = func(_ context.Context, _ kdrive.UploadInput) (kdrive.FileInfo, error) {
 			return kdrive.FileInfo{}, kdrive.ErrServer
 		}
 		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
 		_, _ = wh.Write(ctx, []byte("a"), 0)
-		errno := wh.Flush(ctx)
-		Expect(errno).NotTo(BeZero())
+		Expect(wh.Flush(ctx)).NotTo(BeZero())
 		_ = wh.Release(ctx)
 	})
 
-	It("Release after upload closes and removes tempfile", func() {
+	It("Release closes and removes the tempfile, idempotently", func() {
 		wh, _ := newWriteHandle(fake, 1, 0, "x.txt", nil)
 		name := wh.tmp.Name()
 		Expect(wh.Release(ctx)).To(BeZero())
-		// subsequent Release is a no-op
-		Expect(wh.Release(ctx)).To(BeZero())
+		Expect(wh.Release(ctx)).To(BeZero()) // second Release is a no-op
 		_ = name
 	})
 })

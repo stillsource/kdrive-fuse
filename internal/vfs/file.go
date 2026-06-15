@@ -62,9 +62,9 @@ func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrI
 	return 0
 }
 
-// Open returns a read or write handle depending on flags.
-// For O_WRONLY|O_RDWR without O_TRUNC, seeds the tempfile with remote content.
-func (f *FileNode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
+// Open returns a read or write handle depending on flags. Write handles start
+// empty; an edit pulls remote content lazily on the first Write (see seedLocked).
+func (f *FileNode) Open(_ context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	writable := flags&(syscall.O_WRONLY|syscall.O_RDWR) != 0
 	truncate := flags&syscall.O_TRUNC != 0
 
@@ -91,19 +91,11 @@ func (f *FileNode) Open(ctx context.Context, flags uint32) (fs.FileHandle, uint3
 		return nil, 0, syscall.EIO
 	}
 	wh.node = f
-	// Seed the tempfile with current remote content only for a genuine partial
-	// write. When O_TRUNC is requested the kernel either drops f.info.Size to 0
-	// via a Setattr before Open (caught by the size guard here) or sends that
-	// Setattr after Open (caught by truncateTo) — either way we must not restore
-	// a stale tail under the freshly written bytes.
-	if !truncate && f.info.ID > 0 && f.info.Size > 0 {
-		rc, err := f.kdfs.Files.DownloadStream(ctx, f.info.ID, 0, 0)
-		if err == nil {
-			_, _ = io.Copy(wh.tmp, rc)
-			_ = rc.Close()
-		}
-	}
-	// Publish the handle only after seeding, so a late truncate can't race the copy.
+	// Don't seed here. O_TRUNC is often delivered as a separate Setattr the
+	// kernel sends around Open (so it may be absent from these flags); a zero
+	// size means the file is empty or already truncated. In both cases the
+	// working file must start empty — seeding is deferred to the first Write.
+	wh.truncated = truncate || f.info.Size == 0
 	f.mu.Lock()
 	f.wh = wh
 	f.mu.Unlock()
@@ -172,7 +164,8 @@ func (h *readHandle) Release(_ context.Context) syscall.Errno {
 
 var errNoCache = errors.New("disk cache not configured")
 
-// writeHandle buffers writes to a tempfile and uploads on Flush.
+// writeHandle buffers writes to a working tempfile and commits them to the
+// server once (on Flush after the first write, with Release as a safety net).
 // existingFileID > 0 enters edit mode (replace remote content); 0 creates a new file.
 type writeHandle struct {
 	files          kdrive.Files
@@ -183,7 +176,10 @@ type writeHandle struct {
 	onUploaded     func(kdrive.FileInfo)
 	node           *FileNode // set by Open; lets a late Setattr truncate this handle
 	mu             sync.Mutex
-	uploaded       bool
+	uploaded       bool // content already committed to the server
+	wrote          bool // at least one Write happened
+	truncated      bool // a truncate was requested (suppresses the remote seed)
+	seeded         bool // remote content has been pulled into the working file
 }
 
 // truncateTo resizes the buffered tempfile. The kernel may send a truncating
@@ -191,6 +187,8 @@ type writeHandle struct {
 func (h *writeHandle) truncateTo(n int64) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	h.truncated = true
+	h.seeded = true // a truncate means we won't pull remote content under the new bytes
 	if h.tmp != nil {
 		_ = h.tmp.Truncate(n)
 	}
@@ -215,31 +213,64 @@ func newWriteHandle(files kdrive.Files, parentID, existingFileID int64, name str
 	}, nil
 }
 
-// Write appends data at offset.
-func (h *writeHandle) Write(_ context.Context, data []byte, off int64) (uint32, syscall.Errno) {
+// Write seeds the working file with remote content on first use (for a partial
+// edit) and applies the write at offset.
+func (h *writeHandle) Write(ctx context.Context, data []byte, off int64) (uint32, syscall.Errno) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
+	if errno := h.seedLocked(ctx); errno != 0 {
+		return 0, errno
+	}
 	n, err := h.tmp.WriteAt(data, off)
 	if err != nil {
 		return 0, syscall.EIO
 	}
+	h.wrote = true
 	return uint32(n), 0
 }
 
-// Flush uploads the accumulated content.
+// seedLocked pulls the current remote content into the working file the first
+// time it's needed: an edit that isn't a truncate needs the existing bytes so a
+// partial write doesn't blank the rest of the file. Caller holds h.mu.
+func (h *writeHandle) seedLocked(ctx context.Context) syscall.Errno {
+	if h.seeded || h.truncated || h.existingFileID == 0 {
+		return 0
+	}
+	rc, err := h.files.DownloadStream(ctx, h.existingFileID, 0, 0)
+	if err != nil {
+		slog.Error("seed download", "id", h.existingFileID, "err", err)
+		return syscall.EIO
+	}
+	defer rc.Close() //nolint:errcheck // cleanup only
+	if _, err := io.Copy(h.tmp, rc); err != nil {
+		slog.Error("seed copy", "id", h.existingFileID, "err", err)
+		return syscall.EIO
+	}
+	h.seeded = true
+	return 0
+}
+
+// Flush commits the buffered content once at least one Write has happened, so a
+// FLUSH the kernel delivers *before* the WRITEs (which it does on a truncating
+// rewrite) is a harmless no-op. The commit also runs on Release as a safety net.
 func (h *writeHandle) Flush(ctx context.Context) syscall.Errno {
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	if h.uploaded {
+	if h.uploaded || !h.wrote {
 		return 0
 	}
+	return h.commitLocked(ctx)
+}
+
+// commitLocked uploads the working file and records the result. Caller holds h.mu.
+func (h *writeHandle) commitLocked(ctx context.Context) syscall.Errno {
 	stat, err := h.tmp.Stat()
 	if err != nil {
-		slog.Error("flush stat", "err", err)
+		slog.Error("commit stat", "err", err)
 		return syscall.EIO
 	}
 	if _, err := h.tmp.Seek(0, io.SeekStart); err != nil {
-		slog.Error("flush seek", "err", err)
+		slog.Error("commit seek", "err", err)
 		return syscall.EIO
 	}
 	info, err := h.files.Upload(ctx, kdrive.UploadInput{
@@ -250,7 +281,7 @@ func (h *writeHandle) Flush(ctx context.Context) syscall.Errno {
 		Size:           stat.Size(),
 	})
 	if err != nil {
-		slog.Error("flush upload",
+		slog.Error("commit upload",
 			"name", h.name,
 			"parent", h.parentID,
 			"existing", h.existingFileID,
@@ -266,16 +297,24 @@ func (h *writeHandle) Flush(ctx context.Context) syscall.Errno {
 	return 0
 }
 
-// Release removes the tempfile.
-func (h *writeHandle) Release(_ context.Context) syscall.Errno {
+// Release commits content not already flushed (writes after the last Flush, a
+// truncate with no following write, or a brand-new file) and drops the working
+// file. Release errors can't reach close(), so a commit error here is only
+// logged; the common write path still surfaces errors via Flush.
+func (h *writeHandle) Release(ctx context.Context) syscall.Errno {
 	h.mu.Lock()
+	if h.tmp == nil {
+		h.mu.Unlock()
+		return 0
+	}
+	if !h.uploaded && (h.wrote || h.truncated || h.existingFileID == 0) {
+		_ = h.commitLocked(ctx)
+	}
 	tmp := h.tmp
 	h.tmp = nil
 	node := h.node
 	h.mu.Unlock()
-	if tmp == nil {
-		return 0
-	}
+
 	name := tmp.Name()
 	_ = tmp.Close()
 	_ = os.Remove(name)
