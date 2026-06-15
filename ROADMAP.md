@@ -11,6 +11,9 @@
 ### Write to existing files (in place)
 `FileNode.Open(O_WRONLY|O_RDWR)` returns a `writeHandle` over a working tempfile. An edit pulls remote content lazily on the first `Write` (skipped for a truncating rewrite, so no stale tail). The content is committed exactly once it's final — on a `Flush` that follows a `Write` (so `close()` still surfaces upload errors), with `Release` as the safety net for writes after the last flush, a truncate with no write, or a new empty file. Because the commit waits for a write (or `Release`), it's immune to the kernel's FLUSH-before-WRITE ordering on truncating rewrites. Edit mode uses the `file_id` query param; `NodeSetattrer` records the truncate.
 
+### Node ownership (deletable / editable in file managers)
+Every node stamps the mounting user's uid/gid (`applyOwner`, defaulted from `os.Getuid()`/`os.Getgid()`). kDrive has no POSIX ownership, so without this nodes report `root`; the mounting user then lacks write on the parent directory and Nautilus refuses to delete or trash (and `rm` reports "write-protected"). The mount sets no `default_permissions`, so these bits aren't enforced by the kernel — they exist so user-space tools behave.
+
 ### Readdir pagination
 `Files.List` loops on `?page=N&per_page=500` until a page returns fewer than 500 entries. No more silent truncation at 10.
 

@@ -31,6 +31,7 @@ var _ fs.NodeRenamer = (*DirNode)(nil)
 // Getattr returns directory attributes.
 func (d *DirNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
 	out.Mode = 0o755 | syscall.S_IFDIR
+	d.kdfs.applyOwner(&out.Attr)
 	out.SetTimeout(30 * time.Second)
 	return 0
 }
@@ -81,6 +82,7 @@ func (d *DirNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (
 		}
 		out.SetAttrTimeout(30 * time.Second)
 		out.SetEntryTimeout(30 * time.Second)
+		d.kdfs.applyOwner(&out.Attr)
 		if f.IsDir() {
 			out.Mode = 0o755 | syscall.S_IFDIR
 			node := &DirNode{kdfs: d.kdfs, folderID: f.ID}
@@ -108,6 +110,7 @@ func (d *DirNode) Mkdir(ctx context.Context, name string, _ uint32, out *fuse.En
 	out.Mode = 0o755 | syscall.S_IFDIR
 	out.SetAttrTimeout(30 * time.Second)
 	out.SetEntryTimeout(30 * time.Second)
+	d.kdfs.applyOwner(&out.Attr)
 	node := &DirNode{kdfs: d.kdfs, folderID: info.ID}
 	return d.NewInode(ctx, node, fs.StableAttr{Mode: syscall.S_IFDIR, Ino: uint64(info.ID)}), 0
 }
@@ -132,6 +135,7 @@ func (d *DirNode) Create(ctx context.Context, name string, _ uint32, _ uint32, o
 	out.Mode = 0o644 | syscall.S_IFREG
 	out.SetAttrTimeout(30 * time.Second)
 	out.SetEntryTimeout(30 * time.Second)
+	d.kdfs.applyOwner(&out.Attr)
 	return child, wh, 0, 0
 }
 

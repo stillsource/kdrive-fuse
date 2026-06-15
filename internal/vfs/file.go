@@ -36,6 +36,7 @@ func (f *FileNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut
 	out.Size = uint64(f.info.Size)
 	out.Mtime = uint64(f.info.LastModifiedAt)
 	out.Ctime = uint64(f.info.CreatedAt)
+	f.kdfs.applyOwner(&out.Attr)
 	out.SetTimeout(30 * time.Second)
 	return 0
 }
@@ -58,6 +59,7 @@ func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrI
 	out.Size = uint64(f.info.Size)
 	out.Mtime = uint64(f.info.LastModifiedAt)
 	out.Ctime = uint64(f.info.CreatedAt)
+	f.kdfs.applyOwner(&out.Attr)
 	out.SetTimeout(30 * time.Second)
 	return 0
 }

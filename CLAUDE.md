@@ -112,6 +112,10 @@ Each commit is single-shot (whole file buffered, capped at 100 MB in practice). 
 - **Download redirects to a CDN** at `https://*.download.kdrive.infomaniakusercontent.com` — Go's `http.Client` strips `Authorization` on cross-host redirects, but the redirect URL is pre-signed so this is fine.
 - **WebDAV at `{driveID}.connect.kdrive.infomaniak.com` is not really WebDAV** — PROPFIND returns 403 with no `DAV:` header. Don't bother with rclone or davfs2; use this client.
 
+## POSIX attributes
+
+kDrive has no POSIX ownership. Every node stamps the mounting user's uid/gid (`KDriveFS.Uid`/`Gid`, defaulted from `os.Getuid()`/`os.Getgid()` in `NewKDriveFS`, applied via `applyOwner` in Getattr/Setattr/Lookup/Mkdir/Create). Without it nodes default to root (uid 0); the mounting user then has no write on the parent directory, so `rm` reports "write-protected" and Nautilus refuses to delete/trash (it derives "can delete" from parent-dir write access). The mount sets no `default_permissions`, so the kernel doesn't enforce these bits — they exist so user-space tools and file managers behave.
+
 ## Inode numbering
 
 kDrive file/folder IDs are used directly as FUSE inode numbers (`uint64(f.ID)`). Stable across restarts.
