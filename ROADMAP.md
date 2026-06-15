@@ -9,7 +9,7 @@
 `Files.DownloadStream(ctx, fileID, off, length)` sets an HTTP `Range` header. `readHandle` opens from the disk cache (full download on first access, local file on subsequent accesses). Benchmark: 887 ms → 1 ms on a 641 KB PDF.
 
 ### Write to existing files
-`FileNode.Open(O_WRONLY|O_RDWR)` returns a `writeHandle` seeded with the remote content (unless `O_TRUNC`). Upload happens in edit mode (`file_id` query param replaces `file_name` / `directory_id` / `conflict`). `NodeSetattrer` accepts truncate-on-open as a no-op so the kernel doesn't bail with ENOTSUP.
+`FileNode.Open(O_WRONLY|O_RDWR)` returns a `writeHandle` seeded with the remote content (unless truncating). Upload happens in edit mode (`file_id` query param replaces `file_name` / `directory_id` / `conflict`). `NodeSetattrer` honors truncate-on-open: the kernel's `Setattr(size)` truncates the buffered tempfile (via the `FileNode.wh` back-reference, or by skipping the seed when it lands before `Open`), so a short rewrite no longer keeps a stale tail. See "In-place editing" below for the remaining flush-ordering gap.
 
 ### Readdir pagination
 `Files.List` loops on `?page=N&per_page=500` until a page returns fewer than 500 entries. No more silent truncation at 10.
@@ -35,6 +35,9 @@ Ginkgo v2 + Gomega; `httptest` for HTTP paths, real FUSE mount for node integrat
 
 ### Chunked upload (> 100 MB)
 kDrive supports a session flow: `POST /upload/session/start` → `POST /upload/session/{token}/chunk` × N → `POST /upload/session/{token}/finish`, with `DELETE /upload/session/{token}` for cancellation. Current single-shot uploads risk request timeouts and RAM spikes on very large files. Reference implementation: `Infomaniak/desktop-kDrive`, `src/libsyncengine/jobs/network/kDrive_API/upload/upload_session/`.
+
+### In-place editing via the mount (write-path redesign)
+Rewriting an existing file through the FUSE mount (`echo > f`) can drop the new content: on a truncating rewrite the kernel issues FLUSH *before* the WRITEs (timing-dependent, tied to the Open-time remote seed), so the one-shot upload commits the truncated/empty buffer and the later writes are stranded by the `uploaded` guard. The short-rewrite *corruption* case is fixed (truncate is honored); this *data-loss* case is not. Fix needs a write-path redesign: drop the eager Open-time seed and commit the final content once on `Release` (download-to-cache → edit cache → upload), or make `Flush` re-upload while dirty. New-file create, read, rename, and delete are unaffected; the library `Upload` (direct call) is also unaffected — this is a FUSE writeHandle-layer issue.
 
 ---
 

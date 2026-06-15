@@ -14,6 +14,7 @@ A Go library and FUSE filesystem for [Infomaniak kDrive](https://www.infomaniak.
 - `xxh3` content hashing for uploads (kDrive requirement)
 - Streaming downloads with HTTP `Range`
 - Edit mode for existing files (`Upload` with `ExistingFileID`)
+- Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff — including uploads, whose `io.ReadSeeker` body is rewound before each attempt
 - LRU disk cache (FUSE): `~/.cache/kdrive-fuse/{fileID}_{last_modified_at}` invalidates automatically when the remote changes
 - 91% test coverage (Ginkgo v2 + Gomega, `httptest`-based HTTP tests + real FUSE mount integration tests)
 
@@ -111,7 +112,7 @@ Run it as a systemd user service to auto-mount at login (example unit in `docs/k
 | List dir | ✅ | pages until exhausted |
 | Stat | ✅ | |
 | Download | ✅ | full + range stream |
-| Upload | ✅ | single-shot (≤ 100 MB) |
+| Upload | ✅ | single-shot (≤ 100 MB); retries transient failures |
 | Mkdir | ✅ | |
 | Delete | ✅ | soft-delete (trashable, recoverable) |
 | Rename | ✅ | |
@@ -120,6 +121,8 @@ Run it as a systemd user service to auto-mount at login (example unit in `docs/k
 | Chunked upload (> 100 MB) | ❌ | roadmap |
 | Trash browsing | ❌ | roadmap |
 | xattrs for kDrive metadata | ❌ | roadmap |
+
+> **Known limitation:** rewriting a file *in place* through the FUSE mount (e.g. `echo > existing`) is not yet reliable — on a truncating rewrite the kernel can send FLUSH before the WRITEs and the new content gets dropped. Creating new files, reading, renaming, and deleting all work; the library `Upload` (with `ExistingFileID`) edits reliably. A write-path redesign is tracked in [`ROADMAP.md`](./ROADMAP.md).
 
 See [`ROADMAP.md`](./ROADMAP.md) for planned work.
 
