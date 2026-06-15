@@ -87,13 +87,13 @@ Cache invalidation is implicit: a remote mtime change produces a different cache
 ### Data flow — write
 
 1. `cp src ~/kDrive-vfs/dst` (new file) → `DirNode.Create` returns a `writeHandle` with `existingFileID=0`
-2. `echo > existing` → `FileNode.Open(O_WRONLY|O_TRUNC)` returns a `writeHandle` with `existingFileID=f.info.ID`
-3. Kernel sends `Setattr(size=N)` for truncate — may arrive *before* `Open` (zeroes `f.info.Size`, so `Open` skips the seed) or *after* `Open` with no file handle (so it truncates the active `writeHandle`'s tempfile via the `FileNode.wh` back-reference). Both orders are handled so a short rewrite never keeps a stale tail.
-4. `Write(data, off)` → `WriteAt` on the tempfile
-5. `Flush` → compute xxh3, `Files.Upload(ctx, UploadInput{...})` → patch `FileNode.info` with the returned `FileInfo` → invalidate parent dir cache
-6. `Release` → close + remove the tempfile
+2. `echo > existing` → `FileNode.Open(O_WRONLY)` returns a `writeHandle` (`existingFileID=f.info.ID`) over an **empty** working tempfile — no eager seed
+3. Kernel sends `Setattr(size=N)` for truncate — may arrive before or after `Open`; either way it's recorded (the `FileNode.wh` back-reference, or a zero `f.info.Size` seen at `Open`) and **suppresses the seed**, so a short rewrite never keeps a stale tail
+4. `Write(data, off)` → on the **first** write of a non-truncating edit, the remote content is pulled into the working file (`DownloadStream`, lazy seed); then `WriteAt`
+5. **Commit** (`Files.Upload` → patch `FileNode.info` → invalidate parent dir cache) happens once the content is final: on a `Flush` that follows a `Write` (so `close()` surfaces upload errors), or on `Release` as a safety net (writes after the last flush, a truncate with no write, a new empty file). A `Flush` before any write is a no-op
+6. `Release` → commit if still pending, then close + remove the working file
 
-Upload is single-shot (whole file buffered, capped at 100 MB in practice). Transient failures (429 / 5xx / transport errors) are retried with exponential backoff: the body is an `io.ReadSeeker` rewound before each attempt. A non-transient 4xx (e.g. hash mismatch) fails fast without retry.
+Each commit is single-shot (whole file buffered, capped at 100 MB in practice). Transient failures (429 / 5xx / transport errors) are retried with exponential backoff: the body is an `io.ReadSeeker` rewound before each attempt. A non-transient 4xx (e.g. hash mismatch) fails fast without retry. Because the commit waits for a write (or `Release`), it is immune to the kernel sending FLUSH before the WRITEs on a truncating rewrite.
 
 ### Data flow — delete
 
