@@ -3,6 +3,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -18,7 +19,26 @@ import (
 	"github.com/stillsource/kdrive-fuse/kdrive"
 )
 
+// version is the build version, overridden at release time via
+// -ldflags "-X main.version=...". See .goreleaser.yaml.
+var version = "dev"
+
+// wantsVersion reports whether the args request a version print.
+func wantsVersion(args []string) bool {
+	for _, a := range args {
+		if a == "--version" || a == "-version" {
+			return true
+		}
+	}
+	return false
+}
+
 func main() {
+	if wantsVersion(os.Args[1:]) {
+		fmt.Println("kdrive-fuse", version)
+		return
+	}
+
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(log)
 
@@ -64,7 +84,7 @@ func main() {
 		os.Exit(1)
 	}
 
-	log.Info("kDrive mounted", "path", cfg.Mount, "cache", cacheDir, "cache_max_gb", cfg.DiskCacheMaxGB)
+	log.Info("kDrive mounted", "version", version, "path", cfg.Mount, "cache", cacheDir, "cache_max_gb", cfg.DiskCacheMaxGB)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

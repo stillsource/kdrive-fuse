@@ -29,6 +29,9 @@ Client constructor `kdrive.New(token, driveID, opts ...Option)` with embedded `F
 ### 91% test coverage
 Ginkgo v2 + Gomega; `httptest` for HTTP paths, real FUSE mount for node integration; race-clean.
 
+### Release automation
+`v*` tags trigger `.github/workflows/release.yml`: the test suite runs, then GoReleaser builds linux/darwin × amd64/arm64 binaries + `checksums.txt`, embeds the version via `-ldflags` (`kdrive-fuse --version`), and publishes a GitHub Release with a changelog grouped from Conventional Commits. Config in `.goreleaser.yaml`.
+
 ---
 
 ## Blocking remaining work
