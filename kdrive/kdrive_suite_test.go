@@ -105,6 +105,11 @@ func newTestFixture(opts ...Option) *testFixture {
 	}
 }
 
+// roundTripFunc adapts a function to http.RoundTripper for transport-level test doubles.
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
+
 // writeJSON helper for handlers.
 func writeJSON(w http.ResponseWriter, status int, body string) {
 	w.Header().Set("Content-Type", "application/json")
