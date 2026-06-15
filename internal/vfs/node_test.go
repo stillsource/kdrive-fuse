@@ -17,6 +17,8 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/listingcache"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
@@ -38,7 +40,7 @@ func newMountFixture(fake *servicefakes.FilesFake) *mountFixture {
 	Expect(os.Mkdir(mnt, 0o755)).To(Succeed())
 	cache := filepath.Join(tmp, "cache")
 
-	disk, err := NewDiskCache(cache, 1<<20, fake)
+	disk, err := contentcache.NewDiskCache(cache, 1<<20, fake)
 	Expect(err).NotTo(HaveOccurred())
 	kdfs := NewKDriveFS(fake, time.Minute, disk)
 	root := NewRootDirNode(kdfs, 1)
@@ -237,7 +239,7 @@ var _ = Describe("DirNode unit — no mount", func() {
 			ListResults: map[int64]servicefakes.ListResult{1: {Err: domain.ErrNotFound}},
 		}
 		d := &DirNode{
-			kdfs:     &KDriveFS{Files: fake, Cache: NewDirCache(time.Second)},
+			kdfs:     &KDriveFS{Files: fake, Cache: listingcache.NewDirCache(time.Second)},
 			folderID: 1,
 		}
 		_, err := d.list(context.Background())
@@ -251,7 +253,7 @@ var _ = Describe("DirNode unit — no mount", func() {
 			},
 		}
 		d := &DirNode{
-			kdfs:     &KDriveFS{Files: fake, Cache: NewDirCache(time.Second)},
+			kdfs:     &KDriveFS{Files: fake, Cache: listingcache.NewDirCache(time.Second)},
 			folderID: 1,
 		}
 		_, err := d.list(context.Background())

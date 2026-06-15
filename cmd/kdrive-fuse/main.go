@@ -16,6 +16,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse/config"
 	"github.com/stillsource/kdrive-fuse/internal/vfs"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi"
 )
 
@@ -60,7 +61,7 @@ func main() {
 		cacheDir = filepath.Join(home, ".cache", "kdrive-fuse")
 	}
 	maxBytes := int64(cfg.DiskCacheMaxGB) * 1024 * 1024 * 1024
-	disk, err := vfs.NewDiskCache(cacheDir, maxBytes, client.Files)
+	disk, err := contentcache.NewDiskCache(cacheDir, maxBytes, client.Files)
 	if err != nil {
 		log.Error("disk cache", "err", err)
 		os.Exit(1)

@@ -1,11 +1,14 @@
-package vfs
+package listingcache
 
 import (
 	"sync"
 	"time"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
+
+var _ service.ListingCache = (*DirCache)(nil)
 
 type dirEntry struct {
 	files   []domain.FileInfo

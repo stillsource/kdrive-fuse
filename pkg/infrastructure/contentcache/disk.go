@@ -1,4 +1,4 @@
-package vfs
+package contentcache
 
 import (
 	"context"
@@ -12,6 +12,8 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
+
+var _ service.ContentCache = (*DiskCache)(nil)
 
 // DiskCache stores file content on disk keyed by (fileID, mtime).
 // New mtime → new path → old entries are orphaned and reclaimed by the LRU cleanup.

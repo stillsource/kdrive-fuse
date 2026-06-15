@@ -6,6 +6,7 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fuse"
 
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/listingcache"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
@@ -20,8 +21,8 @@ type fileClient interface {
 // KDriveFS holds the shared state used by all VFS nodes.
 type KDriveFS struct {
 	Files     fileClient
-	Cache     *DirCache
-	DiskCache *DiskCache
+	Cache     service.ListingCache
+	DiskCache service.ContentCache
 	// Uid/Gid are stamped onto every node's attributes. kDrive has no POSIX
 	// ownership, so without this nodes default to root (uid 0) and the mounting
 	// user can't delete or edit them through file managers (no write on the
@@ -31,10 +32,10 @@ type KDriveFS struct {
 }
 
 // NewKDriveFS wires shared state for VFS nodes.
-func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk *DiskCache) *KDriveFS {
+func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk service.ContentCache) *KDriveFS {
 	return &KDriveFS{
 		Files:     files,
-		Cache:     NewDirCache(cacheTTL),
+		Cache:     listingcache.NewDirCache(cacheTTL),
 		DiskCache: disk,
 		Uid:       uint32(os.Getuid()),
 		Gid:       uint32(os.Getgid()),

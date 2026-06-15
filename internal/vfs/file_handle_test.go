@@ -9,6 +9,8 @@ import (
 	. "github.com/onsi/gomega"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/listingcache"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
@@ -149,7 +151,7 @@ var _ = Describe("readHandle", func() {
 			},
 		}
 		ctx = context.Background()
-		disk, _ := NewDiskCache(dir, 1024, fake)
+		disk, _ := contentcache.NewDiskCache(dir, 1024, fake)
 		kdfs = NewKDriveFS(fake, time.Second, disk)
 	})
 
@@ -176,7 +178,7 @@ var _ = Describe("readHandle", func() {
 	})
 
 	It("returns EIO when DiskCache is nil", func() {
-		kdfsNoCache := &KDriveFS{Files: fake, Cache: NewDirCache(time.Second)}
+		kdfsNoCache := &KDriveFS{Files: fake, Cache: listingcache.NewDirCache(time.Second)}
 		h := &readHandle{kdfs: kdfsNoCache, info: domain.FileInfo{ID: 10}}
 		_, errno := h.Read(ctx, make([]byte, 1), 0)
 		Expect(errno).NotTo(BeZero())
