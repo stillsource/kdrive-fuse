@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -180,38 +181,86 @@ func (s *FilesService) Upload(ctx context.Context, in UploadInput) (FileInfo, er
 	endpoint := "/upload?" + q.Encode()
 	reqURL := s.client.uploadBaseURL + "/" + s.client.driveID + endpoint
 
-	// Upload body is a ReadSeeker — we can't use doRaw's []byte body retry path.
-	// We build the request directly and skip retries (body consumed on first attempt).
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, in.Body)
-	if err != nil {
-		return FileInfo{}, scerr.Wrap(ErrValidation, scerr.WithDetailf("build upload req: %v", err))
-	}
-	req.Header.Set("Authorization", "Bearer "+s.client.token)
-	req.Header.Set("Content-Type", "application/octet-stream")
-	req.ContentLength = in.Size
+	// The body is an io.ReadSeeker, so we rewind it and retry transient failures
+	// (429 / 5xx / transport errors) with exponential backoff, mirroring doRaw.
+	// A non-transient 4xx (e.g. hash mismatch) is returned without retry.
+	var lastErr error
+	backoff := s.client.initialBackoff
+	for attempt := 0; attempt <= s.client.maxRetries; attempt++ {
+		if attempt > 0 {
+			if err := sleepCtx(ctx, backoff); err != nil {
+				return FileInfo{}, err
+			}
+			backoff *= 2
+			if _, err := in.Body.Seek(0, io.SeekStart); err != nil {
+				return FileInfo{}, scerr.Wrap(ErrServer,
+					scerr.WithDetail("upload body: seek to start for retry"),
+					scerr.CausedBy(err),
+				)
+			}
+		}
 
-	resp, err := s.client.http.Do(req)
-	if err != nil {
-		return FileInfo{}, scerr.Wrap(ErrServer,
-			scerr.WithDetail("upload transport"),
-			scerr.CausedBy(err),
-		)
-	}
-	defer resp.Body.Close() //nolint:errcheck // cleanup only
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, in.Body)
+		if err != nil {
+			return FileInfo{}, scerr.Wrap(ErrValidation, scerr.WithDetailf("build upload req: %v", err))
+		}
+		req.Header.Set("Authorization", "Bearer "+s.client.token)
+		req.Header.Set("Content-Type", "application/octet-stream")
+		req.ContentLength = in.Size
 
-	if resp.StatusCode >= 400 {
-		return FileInfo{}, fromResponse(resp, "POST /upload")
+		resp, err := s.client.http.Do(req)
+		if err != nil {
+			lastErr = err
+			if !isRetryableError(err) {
+				return FileInfo{}, scerr.Wrap(ErrServer,
+					scerr.WithDetail("upload transport"),
+					scerr.CausedBy(err),
+				)
+			}
+			s.client.log.Warn("kdrive upload failed",
+				slog.Int("attempt", attempt+1),
+				slog.String("err", err.Error()),
+			)
+			continue
+		}
+
+		if shouldRetry(resp.StatusCode) && attempt < s.client.maxRetries {
+			drainAndClose(resp.Body)
+			lastErr = fmt.Errorf("transient %d", resp.StatusCode)
+			s.client.log.Warn("kdrive upload transient status",
+				slog.Int("status", resp.StatusCode),
+				slog.Int("attempt", attempt+1),
+			)
+			continue
+		}
+
+		if resp.StatusCode >= 400 {
+			apiErr := fromResponse(resp, "POST /upload")
+			drainAndClose(resp.Body)
+			return FileInfo{}, apiErr
+		}
+
+		var out struct {
+			Data FileInfo `json:"data"`
+		}
+		err = json.NewDecoder(resp.Body).Decode(&out)
+		drainAndClose(resp.Body)
+		if err != nil {
+			return FileInfo{}, scerr.Wrap(ErrServer,
+				scerr.WithDetail("decode upload response"),
+				scerr.CausedBy(err),
+			)
+		}
+		return out.Data, nil
 	}
-	var out struct {
-		Data FileInfo `json:"data"`
+
+	if lastErr == nil {
+		lastErr = fmt.Errorf("kdrive: upload retries exhausted")
 	}
-	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
-		return FileInfo{}, scerr.Wrap(ErrServer,
-			scerr.WithDetail("decode upload response"),
-			scerr.CausedBy(err),
-		)
-	}
-	return out.Data, nil
+	return FileInfo{}, scerr.Wrap(ErrServer,
+		scerr.WithDetail("upload retries exhausted"),
+		scerr.CausedBy(lastErr),
+	)
 }
 
 // Mkdir creates a directory named name inside parentID.

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -177,6 +178,103 @@ var _ = Describe("FilesService", func() {
 			Expect(gotURL).To(ContainSubstring("conflict=error"))
 			Expect(gotURL).To(ContainSubstring("total_size=5"))
 			Expect(gotURL).To(ContainSubstring("total_chunk_hash=xxh3%3A"))
+		})
+
+		It("retries a 429 then succeeds, rewinding the body each attempt", func() {
+			var calls int
+			var lastBody []byte
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				lastBody = readBody(r)
+				if calls == 1 {
+					writeJSON(w, http.StatusTooManyRequests, `{"error":"slow down"}`)
+					return
+				}
+				writeJSON(w, 200, `{"data":{"id":7,"name":"r.txt","type":"file","size":5}}`)
+			})
+			info, err := fx.Client.Files.Upload(ctx, UploadInput{
+				ParentID: 1, Name: "r.txt",
+				Body: bytes.NewReader([]byte("hello")), Size: 5,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(info.ID).To(Equal(int64(7)))
+			Expect(calls).To(Equal(2))
+			Expect(lastBody).To(Equal([]byte("hello"))) // body fully re-sent after rewind
+		})
+
+		It("retries a 5xx then succeeds", func() {
+			var calls int
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_ = readBody(r)
+				if calls < 2 {
+					writeJSON(w, http.StatusBadGateway, `{"error":"upstream"}`)
+					return
+				}
+				writeJSON(w, 200, `{"data":{"id":8,"name":"r.txt","type":"file"}}`)
+			})
+			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+				ParentID: 1, Name: "r.txt",
+				Body: bytes.NewReader([]byte("data")), Size: 4,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(calls).To(Equal(2))
+		})
+
+		It("does not retry a 4xx hash mismatch and returns ErrValidation", func() {
+			var calls int
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_ = readBody(r)
+				writeJSON(w, http.StatusBadRequest, `{"error":{"description":"upload hash mismatch"}}`)
+			})
+			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+				ParentID: 1, Name: "r.txt",
+				Body: bytes.NewReader([]byte("data")), Size: 4,
+			})
+			Expect(errors.Is(err, ErrValidation)).To(BeTrue())
+			Expect(calls).To(Equal(1))
+		})
+
+		It("returns ErrServer after exhausting retries on 5xx", func() {
+			var calls int
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				_ = readBody(r)
+				writeJSON(w, http.StatusServiceUnavailable, `{"error":"down"}`)
+			})
+			_, err := fx.Client.Files.Upload(ctx, UploadInput{
+				ParentID: 1, Name: "r.txt",
+				Body: bytes.NewReader([]byte("data")), Size: 4,
+			})
+			Expect(errors.Is(err, ErrServer)).To(BeTrue())
+			Expect(calls).To(Equal(3)) // maxRetries(2) + 1
+		})
+
+		It("retries a transport error then succeeds", func() {
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				_ = readBody(r)
+				writeJSON(w, 200, `{"data":{"id":9,"name":"r.txt","type":"file"}}`)
+			})
+			var calls int
+			rt := roundTripFunc(func(r *http.Request) (*http.Response, error) {
+				calls++
+				if calls == 1 {
+					return nil, errors.New("transport boom")
+				}
+				return http.DefaultTransport.RoundTrip(r)
+			})
+			client := New(testToken, testDriveID,
+				WithUploadBaseURL(fx.Server.URL+"/2/drive"),
+				WithHTTPClient(&http.Client{Transport: rt}),
+				WithRetries(2, 5*time.Millisecond),
+			)
+			_, err := client.Files.Upload(ctx, UploadInput{
+				ParentID: 1, Name: "r.txt",
+				Body: bytes.NewReader([]byte("data")), Size: 4,
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(calls).To(Equal(2))
 		})
 
 		It("computes xxh3 hash correctly", func() {

@@ -93,7 +93,7 @@ Cache invalidation is implicit: a remote mtime change produces a different cache
 5. `Flush` → compute xxh3, `Files.Upload(ctx, UploadInput{...})` → patch `FileNode.info` with the returned `FileInfo` → invalidate parent dir cache
 6. `Release` → close + remove the tempfile
 
-Upload is single-shot (whole file buffered, capped at 100 MB in practice), no retry (body reader is consumed on the first attempt).
+Upload is single-shot (whole file buffered, capped at 100 MB in practice). Transient failures (429 / 5xx / transport errors) are retried with exponential backoff: the body is an `io.ReadSeeker` rewound before each attempt. A non-transient 4xx (e.g. hash mismatch) fails fast without retry.
 
 ### Data flow — delete
 

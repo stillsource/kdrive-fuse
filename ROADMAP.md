@@ -72,7 +72,7 @@ Env `KDRIVE_READONLY=1` disables Create / Mkdir / Unlink / Rmdir / Rename — th
 Switch from `slog.NewTextHandler` to `slog.NewJSONHandler` so records are grep-friendly with `jq`. Keep the text handler as a `--log-format=text` opt-out.
 
 ### Idempotency for non-idempotent ops
-Upload and Create already disable auto-retry (the body reader is consumed). Verify that Rename / Move are idempotent (second call returns 404 or success) and document the guarantees; tighten if needed.
+Upload now retries transient failures (429 / 5xx / transport) by rewinding its `io.ReadSeeker` body before each attempt; non-transient 4xx fail fast. Verify that Rename / Move are idempotent (second call returns 404 or success) and document the guarantees; tighten if needed.
 
 ---
 
