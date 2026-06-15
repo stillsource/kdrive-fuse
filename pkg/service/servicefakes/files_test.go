@@ -1,4 +1,4 @@
-package kdrivefakes_test
+package servicefakes_test
 
 import (
 	"bytes"
@@ -10,22 +10,22 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
+	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
 
 func TestKdrivefakes(t *testing.T) {
 	RegisterFailHandler(Fail)
-	RunSpecs(t, "kdrivefakes Suite")
+	RunSpecs(t, "servicefakes Suite")
 }
 
 var _ = Describe("FilesFake", func() {
-	var f *kdrivefakes.FilesFake
+	var f *servicefakes.FilesFake
 	ctx := context.Background()
 
 	BeforeEach(func() {
-		f = &kdrivefakes.FilesFake{}
+		f = &servicefakes.FilesFake{}
 	})
 
 	It("List uses stub when set", func() {
@@ -39,7 +39,7 @@ var _ = Describe("FilesFake", func() {
 	})
 
 	It("List uses Results map when stub absent", func() {
-		f.ListResults = map[int64]kdrivefakes.ListResult{
+		f.ListResults = map[int64]servicefakes.ListResult{
 			42: {Files: []domain.FileInfo{{ID: 99}}, Err: nil},
 		}
 		got, err := f.List(ctx, 42)
@@ -55,20 +55,20 @@ var _ = Describe("FilesFake", func() {
 
 	It("Stat results map propagates error", func() {
 		boom := errors.New("boom")
-		f.StatResults = map[int64]kdrivefakes.StatResult{1: {Err: boom}}
+		f.StatResults = map[int64]servicefakes.StatResult{1: {Err: boom}}
 		_, err := f.Stat(ctx, 1)
 		Expect(err).To(Equal(boom))
 	})
 
 	It("Download uses Results", func() {
-		f.DownloadResults = map[int64]kdrivefakes.DownloadResult{1: {Data: []byte("abc")}}
+		f.DownloadResults = map[int64]servicefakes.DownloadResult{1: {Data: []byte("abc")}}
 		got, err := f.Download(ctx, 1)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(got)).To(Equal("abc"))
 	})
 
 	It("DownloadStream wraps bytes in a ReadCloser", func() {
-		f.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{7: {Data: []byte("xyz")}}
+		f.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{7: {Data: []byte("xyz")}}
 		rc, err := f.DownloadStream(ctx, 7, 0, 0)
 		Expect(err).NotTo(HaveOccurred())
 		defer rc.Close()
@@ -78,7 +78,7 @@ var _ = Describe("FilesFake", func() {
 	})
 
 	It("Upload records input and returns result by name key", func() {
-		f.UploadResults = map[string]kdrivefakes.UploadResult{
+		f.UploadResults = map[string]servicefakes.UploadResult{
 			"new.txt": {Info: domain.FileInfo{ID: 5, Name: "new.txt"}},
 		}
 		info, err := f.Upload(ctx, service.UploadInput{
@@ -91,7 +91,7 @@ var _ = Describe("FilesFake", func() {
 	})
 
 	It("Upload keys by id:N in edit mode", func() {
-		f.UploadResults = map[string]kdrivefakes.UploadResult{
+		f.UploadResults = map[string]servicefakes.UploadResult{
 			"id:42": {Info: domain.FileInfo{ID: 42}},
 		}
 		info, err := f.Upload(ctx, service.UploadInput{
@@ -102,7 +102,7 @@ var _ = Describe("FilesFake", func() {
 	})
 
 	It("Mkdir uses parentID/name key", func() {
-		f.MkdirResults = map[string]kdrivefakes.MkdirResult{
+		f.MkdirResults = map[string]servicefakes.MkdirResult{
 			"1/new": {Info: domain.FileInfo{ID: 9, Name: "new", Type: domain.FileTypeDir}},
 		}
 		info, err := f.Mkdir(ctx, 1, "new")
@@ -113,7 +113,7 @@ var _ = Describe("FilesFake", func() {
 	It("Delete / Rename / Move use per-id maps", func() {
 		boom := errors.New("boom")
 		f.DeleteResults = map[int64]error{3: boom}
-		f.RenameResults = map[int64]kdrivefakes.RenameResult{
+		f.RenameResults = map[int64]servicefakes.RenameResult{
 			5: {Info: domain.FileInfo{ID: 5, Name: "r"}, Err: nil},
 		}
 		f.MoveResults = map[int64]error{7: nil}
@@ -131,7 +131,7 @@ var _ = Describe("FilesFake", func() {
 
 	It("Stubs take precedence over Results maps for every method", func() {
 		f.DownloadStub = func(_ context.Context, id int64) ([]byte, error) { return []byte("stubbed"), nil }
-		f.DownloadResults = map[int64]kdrivefakes.DownloadResult{1: {Data: []byte("results")}}
+		f.DownloadResults = map[int64]servicefakes.DownloadResult{1: {Data: []byte("results")}}
 		got, err := f.Download(ctx, 1)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(string(got)).To(Equal("stubbed"))
@@ -140,7 +140,7 @@ var _ = Describe("FilesFake", func() {
 
 var _ = Describe("FilesFake snapshot getters", func() {
 	It("return defensive copies of every Calls slice", func() {
-		f := &kdrivefakes.FilesFake{}
+		f := &servicefakes.FilesFake{}
 		ctx := context.Background()
 		_, _ = f.List(ctx, 1)
 		_, _ = f.Mkdir(ctx, 1, "d")
@@ -165,12 +165,12 @@ var _ = Describe("FilesFake snapshot getters", func() {
 
 var _ = Describe("SharesFake", func() {
 	It("supports stub / results / default", func() {
-		f := &kdrivefakes.SharesFake{}
+		f := &servicefakes.SharesFake{}
 		info, err := f.Publish(context.Background(), 1)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(info.ShareURL).To(BeEmpty())
 
-		f.PublishResults = map[int64]kdrivefakes.PublishResult{
+		f.PublishResults = map[int64]servicefakes.PublishResult{
 			2: {Info: domain.ShareInfo{ShareURL: "https://x"}},
 		}
 		info, err = f.Publish(context.Background(), 2)

@@ -16,7 +16,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse/config"
 	"github.com/stillsource/kdrive-fuse/internal/vfs"
-	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi"
 )
 
 // version is the build version, overridden at release time via
@@ -48,10 +48,10 @@ func main() {
 		os.Exit(1)
 	}
 
-	client := kdrive.New(cfg.APIToken, cfg.DriveID,
-		kdrive.WithBaseURL(cfg.BaseURL),
-		kdrive.WithUploadBaseURL(cfg.UploadBaseURL),
-		kdrive.WithLogger(log),
+	client := kdriveapi.New(cfg.APIToken, cfg.DriveID,
+		kdriveapi.WithBaseURL(cfg.BaseURL),
+		kdriveapi.WithUploadBaseURL(cfg.UploadBaseURL),
+		kdriveapi.WithLogger(log),
 	)
 
 	cacheDir := cfg.DiskCacheDir

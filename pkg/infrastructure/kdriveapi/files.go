@@ -1,4 +1,4 @@
-package kdrive
+package kdriveapi
 
 import (
 	"context"
@@ -13,34 +13,15 @@ import (
 
 	scerr "github.com/scality/go-errors"
 
-	"github.com/stillsource/kdrive-fuse/kdrive/internal/hash"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi/internal/hash"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
-// Files is the contract for file and directory operations. FilesService implements it.
-// Consumers that want to mock the lib in their tests should depend on this interface,
-// not on *FilesService directly. kdrivefakes.FilesFake is a ready-made implementation
-// suitable for unit tests.
-type Files interface {
-	List(ctx context.Context, folderID int64) ([]domain.FileInfo, error)
-	Stat(ctx context.Context, fileID int64) (domain.FileInfo, error)
-	Download(ctx context.Context, fileID int64) ([]byte, error)
-	DownloadStream(ctx context.Context, fileID, off, length int64) (io.ReadCloser, error)
-	Upload(ctx context.Context, in service.UploadInput) (domain.FileInfo, error)
-	Mkdir(ctx context.Context, parentID int64, name string) (domain.FileInfo, error)
-	Delete(ctx context.Context, fileID int64) error
-	Rename(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
-	Move(ctx context.Context, fileID, destDirID int64) error
-}
-
-// FilesService implements Files against the live kDrive API.
+// FilesService implements the file service ports against the live kDrive API.
 type FilesService struct {
 	client *Client
 }
-
-// Static interface check — ensures FilesService satisfies Files.
-var _ Files = (*FilesService)(nil)
 
 // listPageSize is the per-page parameter used by List (kDrive's default is 10).
 const listPageSize = 500

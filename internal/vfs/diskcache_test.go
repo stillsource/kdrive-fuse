@@ -11,25 +11,25 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
 
 var _ = Describe("DiskCache", func() {
 	var (
 		dir  string
-		fake *kdrivefakes.FilesFake
+		fake *servicefakes.FilesFake
 		ctx  context.Context
 	)
 
 	BeforeEach(func() {
 		dir = GinkgoT().TempDir()
-		fake = &kdrivefakes.FilesFake{}
+		fake = &servicefakes.FilesFake{}
 		ctx = context.Background()
 	})
 
 	It("downloads on miss and caches the content", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("hello cached")},
 		}
 		dc, err := NewDiskCache(dir, 1024, fake)
@@ -44,7 +44,7 @@ var _ = Describe("DiskCache", func() {
 	})
 
 	It("serves subsequent opens from disk without re-downloading", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("x")},
 		}
 		dc, _ := NewDiskCache(dir, 1024, fake)
@@ -86,7 +86,7 @@ var _ = Describe("DiskCache", func() {
 	})
 
 	It("propagates download error", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			1: {Err: domain.ErrNotFound},
 		}
 		dc, _ := NewDiskCache(dir, 1024, fake)

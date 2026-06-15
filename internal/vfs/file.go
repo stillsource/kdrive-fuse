@@ -13,7 +13,6 @@ import (
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
@@ -172,7 +171,7 @@ var errNoCache = errors.New("disk cache not configured")
 // server once (on Flush after the first write, with Release as a safety net).
 // existingFileID > 0 enters edit mode (replace remote content); 0 creates a new file.
 type writeHandle struct {
-	files          kdrive.Files
+	files          fileClient
 	parentID       int64
 	existingFileID int64
 	name           string
@@ -202,7 +201,7 @@ var _ fs.FileWriter = (*writeHandle)(nil)
 var _ fs.FileFlusher = (*writeHandle)(nil)
 var _ fs.FileReleaser = (*writeHandle)(nil)
 
-func newWriteHandle(files kdrive.Files, parentID, existingFileID int64, name string, onUploaded func(domain.FileInfo)) (*writeHandle, error) {
+func newWriteHandle(files fileClient, parentID, existingFileID int64, name string, onUploaded func(domain.FileInfo)) (*writeHandle, error) {
 	tmp, err := os.CreateTemp("", "kdrive-upload-*")
 	if err != nil {
 		return nil, err

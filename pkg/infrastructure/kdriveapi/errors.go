@@ -1,4 +1,4 @@
-package kdrive
+package kdriveapi
 
 import (
 	"bytes"

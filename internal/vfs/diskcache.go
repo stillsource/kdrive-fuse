@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
 // DiskCache stores file content on disk keyed by (fileID, mtime).
@@ -18,13 +18,13 @@ import (
 type DiskCache struct {
 	dir     string
 	maxB    int64
-	files   kdrive.Files
+	files   service.FileReader
 	locks   sync.Map // fileID → *sync.Mutex
 	evictMu sync.Mutex
 }
 
 // NewDiskCache creates/uses dir to store cached file bodies, capped at maxBytes.
-func NewDiskCache(dir string, maxBytes int64, files kdrive.Files) (*DiskCache, error) {
+func NewDiskCache(dir string, maxBytes int64, files service.FileReader) (*DiskCache, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("disk cache mkdir: %w", err)
 	}

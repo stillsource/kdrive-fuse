@@ -1,5 +1,6 @@
-// Package kdrivefakes provides in-memory implementations of the kdrive.Files
-// and kdrive.Shares interfaces suitable for unit tests.
+// Package servicefakes provides in-memory implementations of the service ports
+// (service.FileReader, service.FileWriter, service.FileManager, service.Sharer)
+// suitable for unit tests.
 //
 // Each fake supports three call-routing strategies, checked in order:
 //
@@ -10,4 +11,4 @@
 //
 // All fakes are safe for concurrent use. Every call is recorded on a Calls slice
 // for later inspection, so tests can assert "was this called with those args".
-package kdrivefakes
+package servicefakes

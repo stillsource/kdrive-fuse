@@ -1,4 +1,4 @@
-package kdrivefakes
+package servicefakes
 
 import (
 	"bytes"
@@ -7,12 +7,11 @@ import (
 	"strconv"
 	"sync"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
-// FilesFake implements kdrive.Files for tests.
+// FilesFake implements the service file ports for tests.
 type FilesFake struct {
 	mu sync.Mutex
 
@@ -101,7 +100,11 @@ type MoveCall struct {
 	FileID, DestDirID int64
 }
 
-var _ kdrive.Files = (*FilesFake)(nil)
+var (
+	_ service.FileReader  = (*FilesFake)(nil)
+	_ service.FileWriter  = (*FilesFake)(nil)
+	_ service.FileManager = (*FilesFake)(nil)
+)
 
 func (f *FilesFake) List(ctx context.Context, folderID int64) ([]domain.FileInfo, error) {
 	f.mu.Lock()

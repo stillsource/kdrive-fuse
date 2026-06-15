@@ -1,14 +1,14 @@
-package kdrivefakes
+package servicefakes
 
 import (
 	"context"
 	"sync"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
-// SharesFake implements kdrive.Shares for tests.
+// SharesFake implements service.Sharer for tests.
 type SharesFake struct {
 	mu sync.Mutex
 
@@ -22,7 +22,7 @@ type PublishResult struct {
 	Err  error
 }
 
-var _ kdrive.Shares = (*SharesFake)(nil)
+var _ service.Sharer = (*SharesFake)(nil)
 
 func (f *SharesFake) Publish(ctx context.Context, fileID int64) (domain.ShareInfo, error) {
 	f.mu.Lock()

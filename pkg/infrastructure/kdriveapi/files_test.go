@@ -1,4 +1,4 @@
-package kdrive
+package kdriveapi
 
 import (
 	"bytes"
@@ -14,8 +14,8 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive/internal/hash"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi/internal/hash"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 

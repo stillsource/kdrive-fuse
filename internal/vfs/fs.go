@@ -6,12 +6,20 @@ import (
 
 	"github.com/hanwen/go-fuse/v2/fuse"
 
-	"github.com/stillsource/kdrive-fuse/kdrive"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
+
+// fileClient is the union of file ports the VFS needs. Interim: Task 6 replaces
+// KDriveFS's direct client dependency with use cases.
+type fileClient interface {
+	service.FileReader
+	service.FileWriter
+	service.FileManager
+}
 
 // KDriveFS holds the shared state used by all VFS nodes.
 type KDriveFS struct {
-	Files     kdrive.Files
+	Files     fileClient
 	Cache     *DirCache
 	DiskCache *DiskCache
 	// Uid/Gid are stamped onto every node's attributes. kDrive has no POSIX
@@ -23,7 +31,7 @@ type KDriveFS struct {
 }
 
 // NewKDriveFS wires shared state for VFS nodes.
-func NewKDriveFS(files kdrive.Files, cacheTTL time.Duration, disk *DiskCache) *KDriveFS {
+func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk *DiskCache) *KDriveFS {
 	return &KDriveFS{
 		Files:     files,
 		Cache:     NewDirCache(cacheTTL),

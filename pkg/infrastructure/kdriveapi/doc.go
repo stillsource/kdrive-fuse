@@ -1,11 +1,11 @@
-// Package kdrive is a Go client for the Infomaniak kDrive REST API v2.
+// Package kdriveapi is an internal HTTP adapter for the Infomaniak kDrive REST API v2.
 //
 // # Overview
 //
 // Client is safe for concurrent use and groups operations into services:
 //
-//	client := kdrive.New(token, driveID,
-//	    kdrive.WithLogger(slog.Default()),
+//	client := kdriveapi.New(token, driveID,
+//	    kdriveapi.WithLogger(slog.Default()),
 //	)
 //	infos, err := client.Files.List(ctx, folderID)
 //	link, err := client.Shares.Publish(ctx, fileID)
@@ -28,4 +28,4 @@
 // The kDrive binary upload endpoint is hosted on a different domain
 // (api.kdrive.infomaniak.com) than list/download/rename/etc.
 // (api.infomaniak.com/2/drive). Both base URLs are configurable via options.
-package kdrive
+package kdriveapi

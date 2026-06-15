@@ -16,9 +16,9 @@ import (
 	"github.com/hanwen/go-fuse/v2/fs"
 	"github.com/hanwen/go-fuse/v2/fuse"
 
-	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
+	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
 
 // mountFixture spins up an in-process FUSE mount backed by an in-memory Files fake.
@@ -27,12 +27,12 @@ import (
 type mountFixture struct {
 	Dir   string
 	Cache string
-	Fake  *kdrivefakes.FilesFake
+	Fake  *servicefakes.FilesFake
 	KDFS  *KDriveFS
 	Srv   *fuse.Server
 }
 
-func newMountFixture(fake *kdrivefakes.FilesFake) *mountFixture {
+func newMountFixture(fake *servicefakes.FilesFake) *mountFixture {
 	tmp := GinkgoT().TempDir()
 	mnt := filepath.Join(tmp, "mnt")
 	Expect(os.Mkdir(mnt, 0o755)).To(Succeed())
@@ -63,9 +63,9 @@ func newMountFixture(fake *kdrivefakes.FilesFake) *mountFixture {
 //	├── hello.txt (id=10, size=11, "hello world")
 //	└── sub/ (id=20)
 //	    └── nested.txt (id=30, "nested")
-func baseFake() *kdrivefakes.FilesFake {
-	return &kdrivefakes.FilesFake{
-		ListResults: map[int64]kdrivefakes.ListResult{
+func baseFake() *servicefakes.FilesFake {
+	return &servicefakes.FilesFake{
+		ListResults: map[int64]servicefakes.ListResult{
 			1: {Files: []domain.FileInfo{
 				{ID: 10, Name: "hello.txt", Type: domain.FileTypeFile, Size: 11, LastModifiedAt: 100},
 				{ID: 20, Name: "sub", Type: domain.FileTypeDir},
@@ -74,7 +74,7 @@ func baseFake() *kdrivefakes.FilesFake {
 				{ID: 30, Name: "nested.txt", Type: domain.FileTypeFile, Size: 6, LastModifiedAt: 200},
 			}},
 		},
-		DownloadStreamResults: map[int64]kdrivefakes.DownloadStreamResult{
+		DownloadStreamResults: map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("hello world")},
 			30: {Data: []byte("nested")},
 		},
@@ -143,7 +143,7 @@ var _ = Describe("DirNode via FUSE mount — read paths", func() {
 var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 	It("Mkdir creates a directory", func() {
 		fake := baseFake()
-		fake.MkdirResults = map[string]kdrivefakes.MkdirResult{
+		fake.MkdirResults = map[string]servicefakes.MkdirResult{
 			"1/newdir": {Info: domain.FileInfo{ID: 40, Name: "newdir", Type: domain.FileTypeDir}},
 		}
 		fx := newMountFixture(fake)
@@ -169,7 +169,7 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 
 	It("Rename within same directory calls API Rename only", func() {
 		fake := baseFake()
-		fake.RenameResults = map[int64]kdrivefakes.RenameResult{
+		fake.RenameResults = map[int64]servicefakes.RenameResult{
 			10: {Info: domain.FileInfo{ID: 10, Name: "renamed.txt"}},
 		}
 		fx := newMountFixture(fake)
@@ -184,7 +184,7 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 	It("Rename across directories calls Move + Rename", func() {
 		fake := baseFake()
 		fake.MoveResults = map[int64]error{10: nil}
-		fake.RenameResults = map[int64]kdrivefakes.RenameResult{
+		fake.RenameResults = map[int64]servicefakes.RenameResult{
 			10: {Info: domain.FileInfo{ID: 10, Name: "other.txt"}},
 		}
 		fx := newMountFixture(fake)
@@ -233,8 +233,8 @@ var _ = Describe("DirNode unit — no mount", func() {
 	})
 
 	It("list propagates API errors", func() {
-		fake := &kdrivefakes.FilesFake{
-			ListResults: map[int64]kdrivefakes.ListResult{1: {Err: domain.ErrNotFound}},
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{1: {Err: domain.ErrNotFound}},
 		}
 		d := &DirNode{
 			kdfs:     &KDriveFS{Files: fake, Cache: NewDirCache(time.Second)},
@@ -245,8 +245,8 @@ var _ = Describe("DirNode unit — no mount", func() {
 	})
 
 	It("list caches subsequent calls", func() {
-		fake := &kdrivefakes.FilesFake{
-			ListResults: map[int64]kdrivefakes.ListResult{
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{
 				1: {Files: []domain.FileInfo{{ID: 10, Name: "a"}}},
 			},
 		}
@@ -320,8 +320,8 @@ var _ = Describe("DirNode error paths via mount", func() {
 	})
 
 	It("Readdir propagates API error as EIO", func() {
-		fake := &kdrivefakes.FilesFake{
-			ListResults: map[int64]kdrivefakes.ListResult{
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{
 				1: {Err: domain.ErrServer},
 			},
 		}

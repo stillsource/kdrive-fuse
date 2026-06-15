@@ -8,19 +8,19 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/kdrive/kdrivefakes"
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
+	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
 
 var _ = Describe("writeHandle", func() {
 	var (
-		fake *kdrivefakes.FilesFake
+		fake *servicefakes.FilesFake
 		ctx  context.Context
 	)
 
 	BeforeEach(func() {
-		fake = &kdrivefakes.FilesFake{}
+		fake = &servicefakes.FilesFake{}
 		ctx = context.Background()
 	})
 
@@ -60,7 +60,7 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	It("a truncate then write uploads only the new bytes (no stale tail)", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("ABCDEFGHIJ")},
 		}
 		var bodies []string
@@ -74,7 +74,7 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	It("seeds remote content lazily then overlays a partial write", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("ABCDEFGHIJ")},
 		}
 		var bodies []string
@@ -87,7 +87,7 @@ var _ = Describe("writeHandle", func() {
 	})
 
 	It("uploads an empty buffer on Release for a truncate with no write", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("ABCDEFGHIJ")},
 		}
 		var bodies []string
@@ -136,15 +136,15 @@ var _ = Describe("writeHandle", func() {
 var _ = Describe("readHandle", func() {
 	var (
 		dir  string
-		fake *kdrivefakes.FilesFake
+		fake *servicefakes.FilesFake
 		ctx  context.Context
 		kdfs *KDriveFS
 	)
 
 	BeforeEach(func() {
 		dir = GinkgoT().TempDir()
-		fake = &kdrivefakes.FilesFake{
-			DownloadStreamResults: map[int64]kdrivefakes.DownloadStreamResult{
+		fake = &servicefakes.FilesFake{
+			DownloadStreamResults: map[int64]servicefakes.DownloadStreamResult{
 				10: {Data: []byte("the quick brown fox")},
 			},
 		}
@@ -164,7 +164,7 @@ var _ = Describe("readHandle", func() {
 	})
 
 	It("propagates EIO when DiskCache fails", func() {
-		fake.DownloadStreamResults = map[int64]kdrivefakes.DownloadStreamResult{
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Err: domain.ErrNotFound},
 		}
 		h := &readHandle{kdfs: kdfs, info: domain.FileInfo{ID: 10, LastModifiedAt: 99}}

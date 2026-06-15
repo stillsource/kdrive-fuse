@@ -1,4 +1,4 @@
-package kdrive
+package kdriveapi
 
 import (
 	"context"
@@ -11,17 +11,10 @@ import (
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
 
-// Shares is the contract for share-link operations. SharesService implements it.
-type Shares interface {
-	Publish(ctx context.Context, fileID int64) (domain.ShareInfo, error)
-}
-
-// SharesService implements Shares against the live kDrive API.
+// SharesService implements the Sharer port against the live kDrive API.
 type SharesService struct {
 	client *Client
 }
-
-var _ Shares = (*SharesService)(nil)
 
 // Publish returns the first existing public share link for fileID, creating a new
 // non-password-protected, non-expiring share if none exists.
