@@ -60,7 +60,8 @@ pkg/usecase/                    application logic — one type per operation, wi
 pkg/infrastructure/             the adapters — concrete implementations of the service ports
 ├── kdriveapi/                  internal HTTP adapter for the kDrive REST API v2 (NOT a public library)
 │   ├── client.go               Client + New(token, driveID, opts ...Option)
-│   ├── options.go              WithBaseURL / WithUploadBaseURL / WithLogger
+│   ├── options.go              WithBaseURL / WithUploadBaseURL / WithLogger / WithRetries / WithHTTPClient / WithUploadTimeout
+│   │                           reads use a 60s http client; uploads a separate 2m client (large/slow transfers); default 5 retries
 │   ├── response.go             request / retry / decode plumbing
 │   ├── ports.go                the service interfaces the client satisfies
 │   ├── files.go                *FilesService (List, Stat, Download, DownloadStream, Upload, Mkdir, Delete, Rename, Move)
