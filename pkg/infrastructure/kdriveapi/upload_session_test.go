@@ -276,6 +276,57 @@ var _ = Describe("FilesService.Upload — chunked session", func() {
 		Expect(cancelled).To(BeTrue())
 	})
 
+	It("fails fast when start returns a non-transient 4xx (no chunks, no session)", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		var mu sync.Mutex
+		startAttempts := 0
+		chunkHit := false
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			startAttempts++
+			writeJSON(w, http.StatusBadRequest, `{"error":"bad start"}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			chunkHit = true
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
+		})
+		Expect(err).To(MatchError(domain.ErrValidation)) // 400 -> ErrValidation, no retry
+		Expect(startAttempts).To(Equal(1))               // fail-fast on start
+		Expect(chunkHit).To(BeFalse())                   // never reached the chunk loop
+	})
+
+	It("errors when start returns an empty token", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		chunkHit := false
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"token":""}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session//chunk", func(w http.ResponseWriter, r *http.Request) {
+			chunkHit = true
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
+		})
+		Expect(err).To(MatchError(domain.ErrServer))
+		Expect(err.Error()).To(ContainSubstring("empty token"))
+		Expect(chunkHit).To(BeFalse()) // never reached the chunk loop
+	})
+
 	It("surfaces a non-retryable transport error from start", func() {
 		withSmallChunks(4, 4)
 		// A client whose transport always fails with a context-cancelled (non-retryable) error.
