@@ -38,12 +38,8 @@ Layered under `pkg/` (`domain` / `service` / `usecase` / `infrastructure` / `pre
 ### Release automation
 `v*` tags trigger `.github/workflows/release.yml`: the test suite runs, then GoReleaser builds linux/darwin × amd64/arm64 binaries + `checksums.txt`, embeds the version via `-ldflags` (`kdrive-fuse --version`), and publishes a GitHub Release with a changelog grouped from Conventional Commits. Config in `.goreleaser.yaml`.
 
----
-
-## Blocking remaining work
-
 ### Chunked upload (> 100 MB)
-kDrive supports a session flow: `POST /upload/session/start` → `POST /upload/session/{token}/chunk` × N → `POST /upload/session/{token}/finish`, with `DELETE /upload/session/{token}` for cancellation. Current single-shot uploads risk request timeouts and RAM spikes on very large files. Reference implementation: `Infomaniak/desktop-kDrive`, `src/libsyncengine/jobs/network/kDrive_API/upload/upload_session/`.
+Files larger than 100 MB upload via the kDrive upload-session flow (`POST /upload/session/start` → `POST /upload/session/{token}/chunk` × N → `POST /upload/session/{token}/finish`, `DELETE /upload/session/{token}` to cancel). 50 MB chunks, per-chunk retry on transient failures, cancel-on-failure to release the partial session, and a `ChunkHasher` hash-of-hashes for `total_chunk_hash`. Smaller files keep the single-shot path.
 
 ---
 

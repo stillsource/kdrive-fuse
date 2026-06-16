@@ -128,7 +128,7 @@ Each commit is single-shot (whole file buffered, capped at 100 MB in practice). 
 - **Upload uses a DIFFERENT HOST**: `api.kdrive.infomaniak.com/2/drive/{driveID}/upload` (NOT `api.infomaniak.com`). The `api.infomaniak.com/files/{parentID}/file?type=txt` endpoint looks like upload but only creates empty Office documents (3-byte BOM). Source of truth: `Infomaniak/desktop-kDrive` on GitHub, `src/libsyncengine/jobs/network/kDrive_API/upload/uploadjob.cpp`.
 - **Upload required query params**: `file_name` + `directory_id` + `conflict=error` + `created_at` + `last_modified_at` + `total_size` + `total_chunk_hash=xxh3:<16hex>`. The hash is xxh3-64 of the full body as 16 lowercase hex chars, prefixed with `xxh3:` (no `XXH3_` prefix — `xxhsum -H3` emits that; strip it).
 - **Edit existing file**: same upload endpoint, but replace `file_name` / `directory_id` / `conflict` with `file_id=N`. File ID is preserved.
-- **Chunked upload for > 100 MB**: session flow at `/drive/{driveID}/upload/session/{start,{token}/chunk,{token}/finish}`. Not implemented yet — single-shot for every size.
+- **Chunked upload for > 100 MB**: implemented via the upload-session flow on `uploadBaseURL` — `POST /upload/session/start` → `POST /upload/session/{token}/chunk` × N → `POST /upload/session/{token}/finish`, with `DELETE /upload/session/{token}` to cancel. Triggered when `Size > 100 MB`; smaller files stay single-shot. The session's `total_chunk_hash` is the hash-of-hashes (xxh3-64 of the concatenated per-chunk xxh3-64 digests — see `ChunkHasher`), not a hash of the whole body.
 - **Upload body must have an explicit `Content-Length`** — the server rejects chunked-encoded requests. Set `req.ContentLength`.
 - **List pagination default is 10** — loop on `?page=N&per_page=500` until a page returns fewer than 500 entries.
 - **Delete is soft** — returns `{"cancel_id": "...", "valid_until": ...}`. The file is recoverable from trash until `valid_until`.
@@ -160,4 +160,4 @@ CI (`.github/workflows/ci.yml`) runs `go vet`, the race detector, coverage gate 
 
 ## Known gaps
 
-See `ROADMAP.md`. Top missing work: chunked upload for files > 100 MB, `kdshare` CLI, `.trash/` virtual directory, real `Setattr` persistence (`touch` mtime), kDrive xattrs surface, Prometheus metrics.
+See `ROADMAP.md`. Top missing work: `kdshare` CLI, `.trash/` virtual directory, real `Setattr` persistence (`touch` mtime), kDrive xattrs surface, Prometheus metrics.
