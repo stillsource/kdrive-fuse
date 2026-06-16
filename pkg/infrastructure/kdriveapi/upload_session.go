@@ -202,7 +202,7 @@ func (s *FilesService) sessionCancel(ctx context.Context, token string) {
 		return
 	}
 	req.Header.Set("Authorization", "Bearer "+s.client.token)
-	resp, err := s.client.http.Do(req)
+	resp, err := s.client.uploadHTTP.Do(req)
 	if err != nil {
 		s.client.log.Warn("kdrive session cancel", slog.String("err", err.Error()))
 		return
@@ -227,7 +227,7 @@ func (s *FilesService) doSessionAttempt(ctx context.Context, build func() (*http
 		if err != nil {
 			return nil, scerr.Wrap(domain.ErrValidation, scerr.WithDetailf("build %s req: %v", op, err))
 		}
-		resp, err := s.client.http.Do(req)
+		resp, err := s.client.uploadHTTP.Do(req)
 		if err != nil {
 			lastErr = err
 			if !isRetryableError(err) {

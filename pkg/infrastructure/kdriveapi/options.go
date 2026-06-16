@@ -10,11 +10,26 @@ import (
 type Option func(*Client)
 
 // WithHTTPClient injects a custom HTTP client (for custom transport, timeouts, etc.).
-// Default: &http.Client{Timeout: 60 * time.Second}.
+// It is used for BOTH reads and uploads, so a test double or custom transport
+// applies everywhere. Default read client: &http.Client{Timeout: 60s};
+// default upload client: &http.Client{Timeout: 2m}. Use WithUploadTimeout to tune
+// only the upload timeout.
 func WithHTTPClient(c *http.Client) Option {
 	return func(k *Client) {
 		if c != nil {
 			k.http = c
+			k.uploadHTTP = c
+		}
+	}
+}
+
+// WithUploadTimeout sets the timeout of the dedicated upload HTTP client, leaving
+// the read client untouched. Uploads of large files (or slow/degraded kDrive
+// responses) need more headroom than the 60s read timeout. Default: 2 minutes.
+func WithUploadTimeout(d time.Duration) Option {
+	return func(k *Client) {
+		if d > 0 {
+			k.uploadHTTP = &http.Client{Timeout: d}
 		}
 	}
 }

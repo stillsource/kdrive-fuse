@@ -14,14 +14,16 @@ const (
 
 const (
 	defaultHTTPTimeout    = 60 * time.Second
-	defaultMaxRetries     = 3
+	defaultUploadTimeout  = 2 * time.Minute
+	defaultMaxRetries     = 5
 	defaultInitialBackoff = time.Second
 )
 
 // Client is the top-level kDrive API client. It groups operations into services
 // (Files, Shares). Safe for concurrent use.
 type Client struct {
-	http           *http.Client
+	http           *http.Client // reads (list/stat/download/rename/mkdir/delete)
+	uploadHTTP     *http.Client // uploads: longer timeout for large/slow transfers
 	log            *slog.Logger
 	baseURL        string
 	uploadBaseURL  string
@@ -44,6 +46,7 @@ type Client struct {
 func New(token, driveID string, opts ...Option) *Client {
 	c := &Client{
 		http:           &http.Client{Timeout: defaultHTTPTimeout},
+		uploadHTTP:     &http.Client{Timeout: defaultUploadTimeout},
 		log:            slog.Default(),
 		baseURL:        DefaultBaseURL,
 		uploadBaseURL:  DefaultUploadBaseURL,

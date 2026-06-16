@@ -200,7 +200,7 @@ func (s *FilesService) Upload(ctx context.Context, in service.UploadInput) (doma
 		req.Header.Set("Content-Type", "application/octet-stream")
 		req.ContentLength = in.Size
 
-		resp, err := s.client.http.Do(req)
+		resp, err := s.client.uploadHTTP.Do(req)
 		if err != nil {
 			lastErr = err
 			if !isRetryableError(err) {
