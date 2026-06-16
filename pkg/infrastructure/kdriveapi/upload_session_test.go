@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"strconv"
 	"sync"
@@ -342,5 +343,77 @@ var _ = Describe("FilesService.Upload — chunked session", func() {
 			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
 		})
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("retries then returns ErrServer when start keeps returning 5xx", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		var mu sync.Mutex
+		startAttempts := 0
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			startAttempts++
+			writeJSON(w, http.StatusInternalServerError, `{"error":"boom"}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
+		})
+		Expect(err).To(MatchError(domain.ErrServer))
+		Expect(startAttempts).To(BeNumerically(">", 1)) // transient 5xx was retried
+	})
+
+	It("returns ErrServer when the transport keeps failing (retries exhausted)", func() {
+		withSmallChunks(4, 4)
+		calls := 0
+		rt := roundTripFunc(func(*http.Request) (*http.Response, error) {
+			calls++
+			return nil, io.ErrUnexpectedEOF // retryable transport error, always fails
+		})
+		c := New(testToken, testDriveID,
+			WithUploadBaseURL("http://example.invalid/2/drive"),
+			WithHTTPClient(&http.Client{Transport: rt}),
+			WithRetries(2, time.Millisecond),
+		)
+		_, err := c.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
+		})
+		Expect(err).To(MatchError(domain.ErrServer))
+		Expect(calls).To(Equal(3)) // 1 attempt + 2 retries, then exhausted
+	})
+
+	It("errors when start returns malformed JSON", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{not json`)
+		})
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
+		})
+		Expect(err).To(MatchError(domain.ErrServer))
+	})
+
+	It("errors when finish returns malformed JSON", func() {
+		withSmallChunks(4, 8)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"token":"SESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{not json`)
+		})
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
+		})
+		Expect(err).To(MatchError(domain.ErrServer))
 	})
 })
