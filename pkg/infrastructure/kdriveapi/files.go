@@ -187,7 +187,12 @@ func (s *FilesService) Upload(ctx context.Context, in service.UploadInput) (doma
 			}
 		}
 
-		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, in.Body)
+		// Wrap the body so the transport can't close it: http.Client closes the
+		// request body after every attempt, but we re-seek and reuse in.Body on
+		// retry. Without NopCloser, a transient 5xx/429 leaves the body (e.g. the
+		// writeHandle's *os.File) closed, and the retry fails with
+		// "seek: file already closed". NopCloser keeps the caller's body open.
+		req, err := http.NewRequestWithContext(ctx, http.MethodPost, reqURL, io.NopCloser(in.Body))
 		if err != nil {
 			return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation, scerr.WithDetailf("build upload req: %v", err))
 		}

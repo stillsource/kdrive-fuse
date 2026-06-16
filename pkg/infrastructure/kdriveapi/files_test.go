@@ -19,6 +19,34 @@ import (
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
+// closeableSeeker mimics *os.File: an io.ReadSeekCloser whose Read/Seek fail
+// once Close has been called. Go's http.Client closes the request body after
+// each attempt, so Upload's retry must avoid letting the transport close the
+// caller's body — otherwise a transient retry hits "seek: file already closed".
+type closeableSeeker struct {
+	*bytes.Reader
+	closed bool
+}
+
+func (c *closeableSeeker) Read(p []byte) (int, error) {
+	if c.closed {
+		return 0, errors.New("read: file already closed")
+	}
+	return c.Reader.Read(p)
+}
+
+func (c *closeableSeeker) Seek(off int64, whence int) (int64, error) {
+	if c.closed {
+		return 0, errors.New("seek: file already closed")
+	}
+	return c.Reader.Seek(off, whence)
+}
+
+func (c *closeableSeeker) Close() error {
+	c.closed = true
+	return nil
+}
+
 var _ = Describe("FilesService", func() {
 	var fx *testFixture
 	var ctx context.Context
@@ -202,6 +230,34 @@ var _ = Describe("FilesService", func() {
 			Expect(info.ID).To(Equal(int64(7)))
 			Expect(calls).To(Equal(2))
 			Expect(lastBody).To(Equal([]byte("hello"))) // body fully re-sent after rewind
+		})
+
+		It("retries a transient 5xx when the body is closeable (os.File-like)", func() {
+			// Production path: writeHandle passes its *os.File tempfile (an
+			// io.ReadCloser) as the body. Go's http.Client closes the request body
+			// after each attempt, so a retry that re-seeks the body must not let the
+			// transport close the caller's body. Regression guard for the
+			// "seek: file already closed" failure on a transient retry.
+			var calls int
+			var lastBody []byte
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				calls++
+				lastBody = readBody(r)
+				if calls == 1 {
+					writeJSON(w, http.StatusBadGateway, `{"error":"transient"}`)
+					return
+				}
+				writeJSON(w, 200, `{"data":{"id":42,"name":"p.jpg","type":"file"}}`)
+			})
+			body := &closeableSeeker{Reader: bytes.NewReader([]byte("photo bytes"))}
+			info, err := fx.Client.Files.Upload(ctx, service.UploadInput{
+				ParentID: 1, Name: "p.jpg",
+				Body: body, Size: int64(len("photo bytes")),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(info.ID).To(Equal(int64(42)))
+			Expect(calls).To(Equal(2))
+			Expect(lastBody).To(Equal([]byte("photo bytes"))) // full body re-sent on retry
 		})
 
 		It("retries a 5xx then succeeds", func() {
