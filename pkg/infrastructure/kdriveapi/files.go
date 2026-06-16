@@ -130,6 +130,10 @@ func (s *FilesService) Upload(ctx context.Context, in service.UploadInput) (doma
 		}
 	}
 
+	if in.Size > uploadSessionThreshold {
+		return s.uploadSession(ctx, in)
+	}
+
 	if _, err := in.Body.Seek(0, io.SeekStart); err != nil {
 		return domain.FileInfo{}, scerr.Wrap(domain.ErrValidation,
 			scerr.WithDetail("upload body: seek to start for hashing"),
