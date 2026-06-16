@@ -10,9 +10,10 @@ Mount an [Infomaniak kDrive](https://www.infomaniak.com/en/hosting/kdrive) remot
 - LRU disk cache at `~/.cache/kdrive-fuse/{fileID}_{last_modified_at}` — invalidates automatically when the remote file changes; configurable byte budget
 - Streaming downloads with HTTP `Range`; first read fetches the body, subsequent reads are local
 - In-place edits of existing files, committed on close (see notes below)
+- Large files (> 100 MB) upload via the kDrive chunked upload-session flow (50 MB chunks, per-chunk retry, cancel-on-failure)
 - Files and directories owned by the mounting user, so file managers can delete/edit them
 - Soft deletes — removed files stay recoverable from the kDrive trash
-- Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff, including uploads
+- Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff; uploads use a dedicated HTTP client with a longer (2 min) timeout to ride out large transfers and slow/degraded responses
 - `xxh3` content hashing for uploads (kDrive requirement)
 - Typed errors internally with `scality/go-errors`; tokens never appear in logs or errors
 - ≥90% test coverage, CI-enforced (Ginkgo v2 + Gomega, `httptest`-based HTTP tests + real FUSE mount integration tests)
@@ -64,13 +65,13 @@ Run it as a systemd user service to auto-mount at login — see the example unit
 | List dir | ✅ | pages until exhausted |
 | Stat | ✅ | |
 | Download | ✅ | full + range stream |
-| Upload | ✅ | single-shot (≤ 100 MB); retries transient failures |
+| Upload | ✅ | single-shot ≤ 100 MB, chunked session > 100 MB; retries transient failures |
 | Mkdir | ✅ | |
 | Delete | ✅ | soft-delete (trashable, recoverable) |
 | Rename | ✅ | |
 | Move | ✅ | |
 | Share | ✅ | get-or-create public link |
-| Chunked upload (> 100 MB) | ❌ | roadmap |
+| Chunked upload (> 100 MB) | ✅ | upload-session flow, 50 MB chunks, per-chunk retry |
 | Trash browsing | ❌ | roadmap |
 | xattrs for kDrive metadata | ❌ | roadmap |
 

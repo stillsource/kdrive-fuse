@@ -41,6 +41,9 @@ Layered under `pkg/` (`domain` / `service` / `usecase` / `infrastructure` / `pre
 ### Chunked upload (> 100 MB)
 Files larger than 100 MB upload via the kDrive upload-session flow (`POST /upload/session/start` → `POST /upload/session/{token}/chunk` × N → `POST /upload/session/{token}/finish`, `DELETE /upload/session/{token}` to cancel). 50 MB chunks, per-chunk retry on transient failures, cancel-on-failure to release the partial session, and a `ChunkHasher` hash-of-hashes for `total_chunk_hash`. Smaller files keep the single-shot path.
 
+### Upload resilience
+kDrive's upload endpoint has intermittent 502 / slow-response windows. Uploads (single-shot and chunked) use a dedicated HTTP client with a 2-minute timeout (vs 60s for reads, which stay snappy), tunable via `WithUploadTimeout`. The default retry count is 5 (6 attempts), so a file's upload rides out a multi-minute transient window instead of failing the copy. Also: the upload retry wraps the body in `io.NopCloser` so the transport can't close the caller's `*os.File` between attempts (a retry would otherwise fail on a closed body).
+
 ---
 
 ## UX
