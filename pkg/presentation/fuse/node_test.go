@@ -216,6 +216,16 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 		Expect(fx.Fake.GetUploadCalls()[0].ParentID).To(Equal(int64(1)))
 		Expect(fx.Fake.GetUploadCalls()[0].ExistingFileID).To(Equal(int64(0)))
 	})
+
+	It("does not upload a file created and closed without writing (no 0-byte placeholder)", func() {
+		fx := newMountFixture(baseFake())
+		f, err := os.Create(filepath.Join(fx.Dir, "placeholder.txt"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(f.Close()).To(Succeed())
+		// Nothing was written, so nothing is committed to the server: an
+		// interrupted/empty create must not leave a 0-byte placeholder.
+		Expect(fx.Fake.GetUploadCalls()).To(BeEmpty())
+	})
 })
 
 var _ = Describe("DirNode unit — no mount", func() {
