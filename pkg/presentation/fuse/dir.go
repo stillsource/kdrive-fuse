@@ -108,6 +108,9 @@ func (d *DirNode) Mkdir(ctx context.Context, name string, _ uint32, out *fuse.En
 
 // Create makes a new file placeholder and returns a writable handle.
 // The real ID is assigned after the upload completes (patched via onUploaded).
+// Overwriting an existing file does not go through here — the kernel resolves it
+// via Lookup and opens it writable, which the write handle treats as an edit
+// (replace) of the existing remote file.
 func (d *DirNode) Create(ctx context.Context, name string, _ uint32, _ uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
 	// Temporary inode number — stable during the handle's lifetime, replaced on next Lookup.
 	tmpIno := uint64(d.folderID)<<32 ^ uint64(len(name))

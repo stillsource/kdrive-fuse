@@ -304,17 +304,23 @@ func (h *writeHandle) commitLocked(ctx context.Context) syscall.Errno {
 	return 0
 }
 
-// Release commits content not already flushed (writes after the last Flush, a
-// truncate with no following write, or a brand-new file) and drops the working
-// file. Release errors can't reach close(), so a commit error here is only
-// logged; the common write path still surfaces errors via Flush.
+// Release commits content written but not yet flushed (writes after the last
+// Flush) and drops the working file. It commits ONLY when content was actually
+// written: a handle that was created/opened but never written is NOT uploaded.
+// This avoids two hazards: a brand-new file left as a 0-byte placeholder when a
+// copy is interrupted before writing, and an aborted truncating overwrite
+// (O_TRUNC then no write) silently emptying an existing remote file. The
+// trade-off — `touch newfile` and `: > existing` (truncate-to-empty with no
+// write) don't persist — is acceptable for this workload. Release errors can't
+// reach close(), so a commit error here is only logged; the common write path
+// still surfaces errors via Flush.
 func (h *writeHandle) Release(ctx context.Context) syscall.Errno {
 	h.mu.Lock()
 	if h.tmp == nil {
 		h.mu.Unlock()
 		return 0
 	}
-	if !h.uploaded && (h.wrote || h.truncated || h.existingFileID == 0) {
+	if !h.uploaded && h.wrote {
 		_ = h.commitLocked(ctx)
 	}
 	tmp := h.tmp

@@ -102,7 +102,7 @@ var _ = Describe("writeHandle", func() {
 		Expect(bodies).To(Equal([]string{"ABxyEFGHIJ"}))
 	})
 
-	It("uploads an empty buffer on Release for a truncate with no write", func() {
+	It("does NOT upload on a truncate with no write (an aborted overwrite must not empty the file)", func() {
 		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("ABCDEFGHIJ")},
 		}
@@ -110,17 +110,17 @@ var _ = Describe("writeHandle", func() {
 		fake.UploadStub = uploadRecorder(&bodies)
 		wh := newWH(1, 10, "x.txt", nil)
 
-		wh.truncateTo(0) // ": > existing" — truncate, no write
+		wh.truncateTo(0) // O_TRUNC then no write — could be an aborted overwrite
 		Expect(wh.Release(ctx)).To(BeZero())
-		Expect(bodies).To(Equal([]string{""}))
+		Expect(bodies).To(BeEmpty()) // the existing file is left untouched
 	})
 
-	It("uploads a new empty file on Release even without writes", func() {
+	It("does NOT upload a new file that was never written (no 0-byte placeholder)", func() {
 		var bodies []string
 		fake.UploadStub = uploadRecorder(&bodies)
-		wh := newWH(1, 0, "empty.txt", nil) // new file
+		wh := newWH(1, 0, "empty.txt", nil) // new file, created but never written
 		Expect(wh.Release(ctx)).To(BeZero())
-		Expect(bodies).To(Equal([]string{""}))
+		Expect(bodies).To(BeEmpty()) // no empty placeholder committed
 	})
 
 	It("does not upload an existing file opened and closed without changes", func() {
