@@ -27,12 +27,14 @@ type PushOptions struct {
 	DryRun    bool
 	NoDelete  bool
 	AssumeNew bool
+	Refresh   bool // re-bootstrap the manifest from a fresh remote index
 }
 
 // Push mirrors opts.LocalRoot onto the remote folder rootID, using the manifest
-// at manifestPath as the baseline. On an empty manifest (and unless AssumeNew)
-// it bootstraps from a remote index so an already-uploaded tree is not re-pushed
-// wholesale. In DryRun it prints the plan to out and changes nothing; otherwise
+// at manifestPath as the baseline. On an empty manifest (and unless AssumeNew),
+// or whenever Refresh is set, it bootstraps from a fresh remote index so an
+// already-uploaded tree is not re-pushed wholesale and stale remote ids are
+// reconciled. In DryRun it prints the plan to out and changes nothing; otherwise
 // it executes the plan and saves the updated manifest.
 func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, manifestPath string, out io.Writer) (Result, error) {
 	local, err := WalkLocal(opts.LocalRoot)
@@ -43,7 +45,7 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 	if err != nil {
 		return Result{}, err
 	}
-	if m.Len() == 0 && !opts.AssumeNew {
+	if opts.Refresh || (m.Len() == 0 && !opts.AssumeNew) {
 		idx, err := remoteindex.Build(ctx, files, rootID)
 		if err != nil {
 			return Result{}, fmt.Errorf("remote index: %w", err)

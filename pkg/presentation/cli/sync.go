@@ -36,15 +36,17 @@ Flags:
   --no-delete   never delete on the destination
   --force       override the deletion guard (and, on pull, the local-drift guard)
   --assume-new  (push only) skip the first-run bootstrap; treat every local file as new
+  --refresh     (push only) re-bootstrap the manifest from a fresh remote index
+  --verify      after the run, report local vs remote presence + size differences
   --jobs N      concurrent transfers (default 8)
   -h, --help    show this help
 `
 
 // syncOptions is the parsed command line for "kdrive sync".
 type syncOptions struct {
-	local, remote                            string
-	pull, dryRun, noDelete, force, assumeNew bool
-	jobs                                     int
+	local, remote                                             string
+	pull, dryRun, noDelete, force, assumeNew, verify, refresh bool
+	jobs                                                      int
 }
 
 // parseSyncFlags parses the arguments after "sync". It returns flag.ErrHelp when
@@ -58,6 +60,8 @@ func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	fs.BoolVar(&o.noDelete, "no-delete", false, "")
 	fs.BoolVar(&o.force, "force", false, "")
 	fs.BoolVar(&o.assumeNew, "assume-new", false, "")
+	fs.BoolVar(&o.verify, "verify", false, "")
+	fs.BoolVar(&o.refresh, "refresh", false, "")
 	fs.IntVar(&o.jobs, "jobs", 8, "")
 	if err := fs.Parse(args); err != nil {
 		return o, err
@@ -116,6 +120,9 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		if !opts.dryRun {
 			_, _ = fmt.Fprintf(stdout, "pulled: %d downloaded, %d deleted, %d failed\n",
 				res.Downloaded, res.Deleted, res.Failed)
+			if opts.verify {
+				runVerify(ctx, local, files, rootID, stdout, stderr)
+			}
 		}
 		if res.Failed > 0 {
 			return 1
@@ -130,6 +137,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		DryRun:    opts.dryRun,
 		NoDelete:  opts.noDelete,
 		AssumeNew: opts.assumeNew,
+		Refresh:   opts.refresh,
 	}, files, rootID, mpath, stdout)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
@@ -138,11 +146,26 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	if !opts.dryRun {
 		_, _ = fmt.Fprintf(stdout, "synced: %d uploaded, %d overwritten, %d deleted, %d failed\n",
 			res.Uploaded, res.Overwritten, res.Deleted, res.Failed)
+		if opts.verify {
+			runVerify(ctx, local, files, rootID, stdout, stderr)
+		}
 	}
 	if res.Failed > 0 {
 		return 1
 	}
 	return 0
+}
+
+// runVerify reports presence + size differences between the local tree and the
+// remote after a sync. Verification failure is non-fatal — it is only logged.
+func runVerify(ctx context.Context, local string, files syncer.Remote, rootID int64, stdout, stderr io.Writer) {
+	vr, err := syncer.Verify(ctx, local, files, rootID, stdout)
+	if err != nil {
+		_, _ = fmt.Fprintf(stderr, "kdrive sync: verify: %v\n", err)
+		return
+	}
+	_, _ = fmt.Fprintf(stdout, "verify: ok=%d missing-remote=%d missing-local=%d sizediff=%d\n",
+		vr.OK, vr.MissingRemote, vr.MissingLocal, vr.SizeDiff)
 }
 
 // syncBackend builds the remote files port, resolves the remote root path to a
