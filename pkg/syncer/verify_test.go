@@ -44,8 +44,22 @@ var _ = Describe("Verify", func() {
 		Expect(res.MissingRemote).To(Equal(1)) // localonly.jpg
 		Expect(res.MissingLocal).To(Equal(1))  // remoteonly.jpg
 		Expect(res.Issues()).To(Equal(3))
-		Expect(out.String()).To(ContainSubstring("localonly.jpg"))
-		Expect(out.String()).To(ContainSubstring("remoteonly.jpg"))
+		// Assert the specific lines, so a swap of the classification branches is caught.
+		Expect(out.String()).To(ContainSubstring("MISSING remote   localonly.jpg"))
+		Expect(out.String()).To(ContainSubstring("MISSING local    remoteonly.jpg"))
+		Expect(out.String()).To(ContainSubstring("SIZE 6->3   big.jpg"))
+	})
+
+	It("treats a missing local root as empty (all remote files missing locally)", func() {
+		rem := &fakeRemote{
+			folders: map[int64][]domain.FileInfo{
+				1: {{ID: 1, Name: "a.jpg", Type: domain.FileTypeFile, Size: 3}},
+			},
+		}
+		res, err := syncer.Verify(context.Background(), filepath.Join(root, "does-not-exist"), rem, 1, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.MissingLocal).To(Equal(1))
+		Expect(res.OK).To(Equal(0))
 	})
 
 	It("reports no issues when the trees match", func() {

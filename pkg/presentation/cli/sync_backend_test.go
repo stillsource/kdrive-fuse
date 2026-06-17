@@ -127,6 +127,21 @@ var _ = Describe("runSync with a fake backend", func() {
 		Expect(out.String()).To(ContainSubstring("verify: ok=1"))
 	})
 
+	It("runs --verify after a pull and reports the comparison", func() {
+		freshRoot := GinkgoT().TempDir()
+		ff := &fakeSyncFiles{
+			listing: map[int64][]domain.FileInfo{
+				1: {{ID: 7, Name: "a.jpg", Type: domain.FileTypeFile, Size: 5, LastModifiedAt: 100}},
+			},
+			content: map[int64][]byte{7: []byte("hello")},
+		}
+		stub(ff, mpath)
+		code := runSync([]string{"--pull", "--verify", freshRoot, "Remote"}, out, errb)
+		Expect(code).To(Equal(0))
+		Expect(out.String()).To(ContainSubstring("pulled: 1 downloaded"))
+		Expect(out.String()).To(ContainSubstring("verify: ok=1"))
+	})
+
 	It("returns 1 when the backend fails", func() {
 		syncBackend = func(context.Context, string, string, io.Writer) (syncer.Remote, int64, string, error) {
 			return nil, 0, "", errors.New("no config")

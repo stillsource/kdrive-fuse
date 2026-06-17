@@ -2,6 +2,7 @@ package syncer_test
 
 import (
 	"context"
+	"errors"
 	"io"
 	"os"
 	"path/filepath"
@@ -19,11 +20,12 @@ import (
 // recordingFiles implements remoteindex.Lister, remoteindex.Mkdirer and
 // service.FileWriter/FileManager for executor and push tests.
 type recordingFiles struct {
-	mu      sync.Mutex
-	folders map[int64][]domain.FileInfo // existing children by folder id
-	nextID  int64
-	uploads []service.UploadInput
-	deleted []int64
+	mu         sync.Mutex
+	folders    map[int64][]domain.FileInfo // existing children by folder id
+	nextID     int64
+	uploads    []service.UploadInput
+	deleted    []int64
+	failUpload map[string]bool // upload of these names returns an error
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
@@ -45,6 +47,9 @@ func (r *recordingFiles) Upload(_ context.Context, in service.UploadInput) (doma
 	body, _ := io.ReadAll(in.Body)
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.failUpload[in.Name] {
+		return domain.FileInfo{}, errors.New("upload failed: " + in.Name)
+	}
 	r.uploads = append(r.uploads, in)
 	r.nextID++
 	return domain.FileInfo{ID: 3000 + r.nextID, Name: in.Name, Size: int64(len(body)), LastModifiedAt: 4242}, nil

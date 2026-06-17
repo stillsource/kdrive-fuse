@@ -58,6 +58,12 @@ func RunPull(ctx context.Context, items []PullItem, actor PullActor, m *manifest
 			defer wg.Done()
 			for it := range in {
 				o := pullOutcome{item: it}
+				if err := ctx.Err(); err != nil {
+					// Cancelled (e.g. Ctrl-C): skip remaining work fast.
+					o.err = err
+					out <- o
+					continue
+				}
 				switch it.Op {
 				case PullDownload:
 					o.size, o.localMtime, o.err = actor.Download(ctx, it.Rel, it.RemoteID)
