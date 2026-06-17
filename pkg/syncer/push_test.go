@@ -83,4 +83,37 @@ var _ = Describe("Push", func() {
 		Expect(res.Deleted).To(Equal(0))
 		Expect(files.deleted).To(BeEmpty())
 	})
+
+	It("dry-run labels overwrite and delete operations", func() {
+		// First push: upload a.jpg so it is tracked in the manifest.
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		// Modify a.jpg (triggers overwrite) and remove it from root after the
+		// dry-run opts are set so the plan has both overwrite and delete items.
+		writeLocal("b.jpg", "bbb")
+		_, err = syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		// Now change a.jpg content (overwrite) and delete b.jpg (delete).
+		writeLocal("a.jpg", "changed")
+		Expect(os.Remove(filepath.Join(root, "b.jpg"))).To(Succeed())
+		o := opts()
+		o.DryRun = true
+		o.Force = true
+		var out strings.Builder
+		_, err = syncer.Push(context.Background(), o, files, 1, mpath, &out)
+		Expect(err).NotTo(HaveOccurred())
+		plan := out.String()
+		Expect(plan).To(ContainSubstring("overwrite"))
+		Expect(plan).To(ContainSubstring("delete"))
+	})
+
+	It("returns an error when the local root does not exist", func() {
+		_, err := syncer.Push(context.Background(), syncer.PushOptions{
+			LocalRoot: filepath.Join(root, "nonexistent"),
+			Jobs:      1,
+		}, files, 1, mpath, &strings.Builder{})
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("walk"))
+	})
 })
