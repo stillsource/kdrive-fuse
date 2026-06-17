@@ -7,7 +7,6 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
-	"path/filepath"
 	"syscall"
 	"time"
 
@@ -15,6 +14,7 @@ import (
 	"github.com/hanwen/go-fuse/v2/fuse"
 
 	"github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse/config"
+	"github.com/stillsource/kdrive-fuse/pkg/appconfig"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/di"
 )
 
@@ -41,29 +41,18 @@ func main() {
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	slog.SetDefault(log)
 
-	cfg, err := config.Load(context.Background())
+	app, err := appconfig.Load(context.Background())
+	if err != nil {
+		log.Error("config", "err", err)
+		os.Exit(1)
+	}
+	mnt, err := config.LoadFUSE(context.Background())
 	if err != nil {
 		log.Error("config", "err", err)
 		os.Exit(1)
 	}
 
-	cacheDir := cfg.DiskCacheDir
-	if cacheDir == "" {
-		home, _ := os.UserHomeDir()
-		cacheDir = filepath.Join(home, ".cache", "kdrive-fuse")
-	}
-
-	c := di.NewContainer(di.Config{
-		Token:          cfg.APIToken,
-		DriveID:        cfg.DriveID,
-		RootFolderID:   cfg.RootFolderID,
-		BaseURL:        cfg.BaseURL,
-		UploadBaseURL:  cfg.UploadBaseURL,
-		CacheTTL:       time.Duration(cfg.CacheTTLSecs) * time.Second,
-		DiskCacheDir:   cacheDir,
-		DiskCacheBytes: int64(cfg.DiskCacheMaxGB) * 1024 * 1024 * 1024,
-		Logger:         log,
-	})
+	c := di.NewContainer(app.DI(log))
 	root, err := c.RootNode()
 	if err != nil {
 		log.Error("disk cache", "err", err)
@@ -71,7 +60,7 @@ func main() {
 	}
 
 	attrTTL := 30 * time.Second
-	server, err := fs.Mount(cfg.Mount, root, &fs.Options{
+	server, err := fs.Mount(mnt.Mount, root, &fs.Options{
 		MountOptions: fuse.MountOptions{
 			Name:   "kdrive",
 			FsName: "kdrive",
@@ -80,11 +69,11 @@ func main() {
 		EntryTimeout: &attrTTL,
 	})
 	if err != nil {
-		log.Error("mount failed", "path", cfg.Mount, "err", err)
+		log.Error("mount failed", "path", mnt.Mount, "err", err)
 		os.Exit(1)
 	}
 
-	log.Info("kDrive mounted", "version", version, "path", cfg.Mount, "cache", cacheDir, "cache_max_gb", cfg.DiskCacheMaxGB)
+	log.Info("kDrive mounted", "version", version, "path", mnt.Mount, "cache", app.CacheDir(), "cache_max_gb", app.DiskCacheMaxGB)
 
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, syscall.SIGINT, syscall.SIGTERM)

@@ -1,5 +1,4 @@
-// Package config loads the kdrive-fuse binary's runtime configuration
-// from environment variables.
+// Package config loads the kdrive-fuse daemon's FUSE-specific configuration.
 package config
 
 import (
@@ -10,22 +9,14 @@ import (
 	"github.com/sethvargo/go-envconfig"
 )
 
-// Config holds all knobs exposed to the binary at boot.
-type Config struct {
-	APIToken       string `env:"KDRIVE_API_TOKEN,required"`
-	DriveID        string `env:"KDRIVE_DRIVE_ID,required"`
-	RootFolderID   int64  `env:"KDRIVE_ROOT_FOLDER_ID,default=1"`
-	Mount          string `env:"KDRIVE_MOUNT,required"`
-	BaseURL        string `env:"KDRIVE_BASE_URL,default=https://api.infomaniak.com/2/drive"`
-	UploadBaseURL  string `env:"KDRIVE_UPLOAD_BASE_URL,default=https://api.kdrive.infomaniak.com/2/drive"`
-	CacheTTLSecs   int    `env:"KDRIVE_CACHE_TTL_SECONDS,default=30"`
-	DiskCacheDir   string `env:"KDRIVE_DISK_CACHE_DIR,default="`
-	DiskCacheMaxGB int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
+// FUSE holds the mount-only configuration specific to the daemon.
+type FUSE struct {
+	Mount string `env:"KDRIVE_MOUNT,required"`
 }
 
-// Load reads environment variables into a Config and ensures the mount dir exists.
-func Load(ctx context.Context) (*Config, error) {
-	var c Config
+// LoadFUSE reads KDRIVE_MOUNT and ensures the mount directory exists.
+func LoadFUSE(ctx context.Context) (*FUSE, error) {
+	var c FUSE
 	if err := envconfig.Process(ctx, &c); err != nil {
 		return nil, fmt.Errorf("config: %w", err)
 	}
