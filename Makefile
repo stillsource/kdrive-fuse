@@ -7,8 +7,8 @@ help:
 	@echo "  test-coverage  - produce coverage.html and print total %"
 	@echo "  lint           - run golangci-lint"
 	@echo "  tidy           - go mod tidy"
-	@echo "  build          - build the kdrive-fuse binary into ./bin"
-	@echo "  install        - build and install binary to ~/bin"
+	@echo "  build          - build the kdrive-fuse and kdrive binaries into ./bin"
+	@echo "  install        - build and install both binaries to ~/bin"
 	@echo "  clean          - remove build artifacts"
 
 test:
@@ -33,9 +33,11 @@ tidy:
 build:
 	mkdir -p bin
 	go build -o bin/kdrive-fuse ./cmd/kdrive-fuse
+	go build -o bin/kdrive ./cmd/kdrive
 
 install: build
 	install -m 0755 bin/kdrive-fuse $${HOME}/bin/kdrive-fuse
+	install -m 0755 bin/kdrive $${HOME}/bin/kdrive
 
 clean:
 	rm -rf bin coverage.out coverage.html cover.out
