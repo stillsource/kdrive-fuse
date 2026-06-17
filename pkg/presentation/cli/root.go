@@ -14,7 +14,8 @@ Usage:
   kdrive <command> [arguments]
   kdrive --help | --version
 
-Commands are added as the suite grows (next: sync).
+Commands:
+  sync   mirror a local tree to its kDrive copy (push)
 
 Run "kdrive <command> --help" for command-specific help.
 `
@@ -32,6 +33,8 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 	case "-version", "--version", "version":
 		_, _ = fmt.Fprintln(stdout, "kdrive", version)
 		return 0
+	case "sync":
+		return runSync(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "kdrive: unknown command %q\n", args[0])
 		_, _ = fmt.Fprint(stderr, usage)
