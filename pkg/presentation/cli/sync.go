@@ -7,8 +7,10 @@ import (
 	"io"
 	"log/slog"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/stillsource/kdrive-fuse/pkg/appconfig"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/di"
@@ -99,7 +101,10 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	ctx := context.Background()
+	// Cancel the sync on SIGINT/SIGTERM (Ctrl-C): in-flight transfers honor the
+	// context and abort, and the runners stop processing the remaining plan.
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
 	files, rootID, mpath, err := syncBackend(ctx, local, opts.remote, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)

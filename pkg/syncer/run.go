@@ -57,6 +57,12 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 			defer wg.Done()
 			for it := range in {
 				o := outcome{item: it, remoteID: it.RemoteID}
+				if err := ctx.Err(); err != nil {
+					// Cancelled (e.g. Ctrl-C): skip remaining work fast.
+					o.err = err
+					out <- o
+					continue
+				}
 				switch it.Op {
 				case OpUpload:
 					o.remoteID, o.remoteMtime, o.err = ex.Upload(ctx, it.Rel, it.Size)
