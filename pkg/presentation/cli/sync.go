@@ -20,27 +20,31 @@ import (
 const defaultLocalRoot = "~/Pictures/FUJI/112_FUJI"
 const defaultRemoteRoot = "Rémanence"
 
-const syncUsage = `kdrive sync — mirror a local tree to its kDrive copy (push).
+const syncUsage = `kdrive sync — mirror a local tree and its kDrive copy.
 
 Usage:
   kdrive sync [flags] [LOCAL] [REMOTE]
-      LOCAL   local source dir   (default: ` + defaultLocalRoot + `)
+      LOCAL   local dir          (default: ` + defaultLocalRoot + `)
       REMOTE  remote path under the drive root (default: ` + defaultRemoteRoot + `)
 
+By default sync pushes (local -> remote). With --pull it mirrors the other way
+(remote -> local).
+
 Flags:
+  --pull        mirror remote -> local instead of local -> remote
   --dry-run     classify and print the plan; change nothing
-  --no-delete   never delete on the remote
-  --force       override the deletion guard (>20% of tracked files)
-  --assume-new  skip the first-run bootstrap; treat every local file as new
+  --no-delete   never delete on the destination
+  --force       override the deletion guard (and, on pull, the local-drift guard)
+  --assume-new  (push only) skip the first-run bootstrap; treat every local file as new
   --jobs N      concurrent transfers (default 8)
   -h, --help    show this help
 `
 
 // syncOptions is the parsed command line for "kdrive sync".
 type syncOptions struct {
-	local, remote                      string
-	dryRun, noDelete, force, assumeNew bool
-	jobs                               int
+	local, remote                            string
+	pull, dryRun, noDelete, force, assumeNew bool
+	jobs                                     int
 }
 
 // parseSyncFlags parses the arguments after "sync". It returns flag.ErrHelp when
@@ -49,6 +53,7 @@ func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	o := syncOptions{}
+	fs.BoolVar(&o.pull, "pull", false, "")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "")
 	fs.BoolVar(&o.noDelete, "no-delete", false, "")
 	fs.BoolVar(&o.force, "force", false, "")
@@ -96,6 +101,28 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
+	if opts.pull {
+		res, err := syncer.Pull(ctx, syncer.PullOptions{
+			LocalRoot: local,
+			Jobs:      opts.jobs,
+			Force:     opts.force,
+			DryRun:    opts.dryRun,
+			NoDelete:  opts.noDelete,
+		}, files, rootID, mpath, stdout)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
+			return 1
+		}
+		if !opts.dryRun {
+			_, _ = fmt.Fprintf(stdout, "pulled: %d downloaded, %d deleted, %d failed\n",
+				res.Downloaded, res.Deleted, res.Failed)
+		}
+		if res.Failed > 0 {
+			return 1
+		}
+		return 0
+	}
+
 	res, err := syncer.Push(ctx, syncer.PushOptions{
 		LocalRoot: local,
 		Jobs:      opts.jobs,
@@ -121,7 +148,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 // syncBackend builds the remote files port, resolves the remote root path to a
 // folder id, and computes the manifest path for a sync run. It is a package var
 // so tests can substitute an in-memory backend.
-var syncBackend = func(ctx context.Context, local, remote string, stderr io.Writer) (syncer.FilesPort, int64, string, error) {
+var syncBackend = func(ctx context.Context, local, remote string, stderr io.Writer) (syncer.Remote, int64, string, error) {
 	log := slog.New(slog.NewTextHandler(stderr, nil))
 	app, err := appconfig.Load(ctx)
 	if err != nil {
