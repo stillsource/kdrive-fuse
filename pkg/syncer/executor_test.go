@@ -5,6 +5,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"sync"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
@@ -18,6 +19,7 @@ import (
 // recordingFiles implements remoteindex.Lister, remoteindex.Mkdirer and
 // service.FileWriter/FileManager for executor and push tests.
 type recordingFiles struct {
+	mu      sync.Mutex
 	folders map[int64][]domain.FileInfo // existing children by folder id
 	nextID  int64
 	uploads []service.UploadInput
@@ -25,10 +27,14 @@ type recordingFiles struct {
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	return r.folders[folderID], nil
 }
 
 func (r *recordingFiles) Mkdir(_ context.Context, parentID int64, name string) (domain.FileInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.nextID++
 	info := domain.FileInfo{ID: 2000 + r.nextID, Name: name, Type: domain.FileTypeDir}
 	r.folders[parentID] = append(r.folders[parentID], info)
@@ -37,12 +43,16 @@ func (r *recordingFiles) Mkdir(_ context.Context, parentID int64, name string) (
 
 func (r *recordingFiles) Upload(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
 	body, _ := io.ReadAll(in.Body)
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.uploads = append(r.uploads, in)
 	r.nextID++
 	return domain.FileInfo{ID: 3000 + r.nextID, Name: in.Name, Size: int64(len(body)), LastModifiedAt: 4242}, nil
 }
 
 func (r *recordingFiles) Delete(_ context.Context, fileID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.deleted = append(r.deleted, fileID)
 	return nil
 }
