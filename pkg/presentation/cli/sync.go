@@ -89,21 +89,8 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	log := slog.New(slog.NewTextHandler(stderr, nil))
-	app, err := appconfig.Load(context.Background())
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
-		return 1
-	}
-	files := di.NewContainer(app.DI(log)).Client().Files
-
 	ctx := context.Background()
-	rootID, err := remoteindex.NewResolver(files, files, app.RootFolderID).Resolve(ctx, opts.remote)
-	if err != nil {
-		_, _ = fmt.Fprintf(stderr, "kdrive sync: resolve remote %q: %v\n", opts.remote, err)
-		return 1
-	}
-	mpath, err := manifest.PathFor(local, opts.remote)
+	files, rootID, mpath, err := syncBackend(ctx, local, opts.remote, stderr)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
 		return 1
@@ -129,6 +116,27 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	return 0
+}
+
+// syncBackend builds the remote files port, resolves the remote root path to a
+// folder id, and computes the manifest path for a sync run. It is a package var
+// so tests can substitute an in-memory backend.
+var syncBackend = func(ctx context.Context, local, remote string, stderr io.Writer) (syncer.FilesPort, int64, string, error) {
+	log := slog.New(slog.NewTextHandler(stderr, nil))
+	app, err := appconfig.Load(ctx)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	files := di.NewContainer(app.DI(log)).Client().Files
+	rootID, err := remoteindex.NewResolver(files, files, app.RootFolderID).Resolve(ctx, remote)
+	if err != nil {
+		return nil, 0, "", fmt.Errorf("resolve remote %q: %w", remote, err)
+	}
+	mpath, err := manifest.PathFor(local, remote)
+	if err != nil {
+		return nil, 0, "", err
+	}
+	return files, rootID, mpath, nil
 }
 
 // expandHome expands a leading ~ or ~/ to the user's home directory.
