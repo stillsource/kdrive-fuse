@@ -5,8 +5,14 @@ package appconfig
 import (
 	"context"
 	"fmt"
+	"log/slog"
+	"os"
+	"path/filepath"
+	"time"
 
 	"github.com/sethvargo/go-envconfig"
+
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/di"
 )
 
 // Config holds the environment knobs common to every kdrive binary.
@@ -33,4 +39,30 @@ func load(ctx context.Context, l envconfig.Lookuper) (*Config, error) {
 		return nil, fmt.Errorf("appconfig: %w", err)
 	}
 	return &c, nil
+}
+
+// CacheDir returns the configured disk-cache directory, or the default
+// ~/.cache/kdrive-fuse when unset.
+func (c *Config) CacheDir() string {
+	if c.DiskCacheDir != "" {
+		return c.DiskCacheDir
+	}
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".cache", "kdrive-fuse")
+}
+
+// DI builds the di.Config used to construct the application container,
+// attaching the given logger.
+func (c *Config) DI(logger *slog.Logger) di.Config {
+	return di.Config{
+		Token:          c.APIToken,
+		DriveID:        c.DriveID,
+		RootFolderID:   c.RootFolderID,
+		BaseURL:        c.BaseURL,
+		UploadBaseURL:  c.UploadBaseURL,
+		CacheTTL:       time.Duration(c.CacheTTLSecs) * time.Second,
+		DiskCacheDir:   c.CacheDir(),
+		DiskCacheBytes: int64(c.DiskCacheMaxGB) * 1024 * 1024 * 1024,
+		Logger:         logger,
+	}
 }
