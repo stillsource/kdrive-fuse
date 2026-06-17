@@ -54,6 +54,7 @@ type syncOptions struct {
 func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	fs := flag.NewFlagSet("sync", flag.ContinueOnError)
 	fs.SetOutput(stderr)
+	fs.Usage = func() {} // runSync prints the full usage; suppress flag's terse dump
 	o := syncOptions{}
 	fs.BoolVar(&o.pull, "pull", false, "")
 	fs.BoolVar(&o.dryRun, "dry-run", false, "")
