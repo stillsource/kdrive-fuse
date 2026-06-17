@@ -2,6 +2,7 @@ package remoteindex_test
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"sync"
 
@@ -17,11 +18,15 @@ type fakeMkdirer struct {
 	mu      sync.Mutex
 	nextID  int64
 	created []string // "parentID/name"
+	err     error    // when non-nil, Mkdir fails with it
 }
 
 func (f *fakeMkdirer) Mkdir(_ context.Context, parentID int64, name string) (domain.FileInfo, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.err != nil {
+		return domain.FileInfo{}, f.err
+	}
 	f.nextID++
 	f.created = append(f.created, fmt.Sprintf("%d/%s", parentID, name))
 	return domain.FileInfo{ID: 1000 + f.nextID, Name: name, Type: domain.FileTypeDir}, nil
@@ -85,5 +90,24 @@ var _ = Describe("Resolver", func() {
 		}
 		wg.Wait()
 		Expect(mk.created).To(HaveLen(3)) // x, y, z exactly once each
+	})
+
+	It("propagates a listing error (and the parent-resolve error above it)", func() {
+		fl := &fakeLister{
+			calls:   map[int64]int{},
+			errs:    map[int64]error{1: errors.New("list boom")},
+			folders: map[int64][]domain.FileInfo{},
+		}
+		r := remoteindex.NewResolver(fl, &fakeMkdirer{}, 1)
+		_, err := r.Resolve(context.Background(), "a/b")
+		Expect(err).To(HaveOccurred())
+	})
+
+	It("propagates a mkdir error", func() {
+		fl := &fakeLister{calls: map[int64]int{}, folders: map[int64][]domain.FileInfo{}}
+		mk := &fakeMkdirer{err: errors.New("mkdir boom")}
+		r := remoteindex.NewResolver(fl, mk, 1)
+		_, err := r.Resolve(context.Background(), "a")
+		Expect(err).To(HaveOccurred())
 	})
 })

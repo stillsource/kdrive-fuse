@@ -33,7 +33,10 @@ func NewResolver(l Lister, mk Mkdirer, rootID int64) *Resolver {
 
 // Resolve returns the folder id for relDir (slash-separated, relative to the
 // root), creating directories that do not yet exist. An empty, "." or "/"
-// relDir resolves to the root.
+// relDir resolves to the root. Callers should pass a cleaned relative path with
+// no ".." components: a ".." is treated as a literal directory name (and is
+// rejected by the backend's name validation). If a non-directory of the same
+// name already exists, it is ignored and a directory create is attempted.
 func (r *Resolver) Resolve(ctx context.Context, relDir string) (int64, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
