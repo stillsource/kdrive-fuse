@@ -28,6 +28,7 @@ Prebuilt binaries for Linux and macOS (amd64 + arm64) are attached to each [GitH
 
 ```bash
 go install github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse@latest
+go install github.com/stillsource/kdrive-fuse/cmd/kdrive@latest
 ```
 
 Or from source:
@@ -35,8 +36,8 @@ Or from source:
 ```bash
 git clone https://github.com/stillsource/kdrive-fuse
 cd kdrive-fuse
-make build            # produces ./bin/kdrive-fuse
-make install          # optional: copies the binary to ~/bin
+make build            # produces ./bin/kdrive-fuse and ./bin/kdrive
+make install          # optional: copies both binaries to ~/bin
 ```
 
 ## Usage
@@ -57,6 +58,59 @@ kdrive-fuse
 ```
 
 Run it as a systemd user service to auto-mount at login — see the example unit [`docs/kdrive-vfs.service`](./docs/kdrive-vfs.service).
+
+## CLI / sync
+
+The `kdrive` binary is a command-line companion to the FUSE daemon. It currently provides one subcommand:
+
+```
+kdrive sync [flags] [LOCAL] [REMOTE]
+```
+
+Mirrors a local directory tree and its kDrive copy. Both `LOCAL` and `REMOTE` are optional positional arguments:
+
+- `LOCAL` — local directory (default: `~/Pictures/FUJI/112_FUJI`)
+- `REMOTE` — path under the drive root (default: `Rémanence`)
+
+By default the sync pushes (local → remote). Add `--pull` to mirror the other way.
+
+```bash
+# Push local → remote (default):
+kdrive sync
+
+# Push a different pair:
+kdrive sync ~/Photos "My Photos"
+
+# Pull remote → local:
+kdrive sync --pull ~/Photos "My Photos"
+
+# Dry-run: classify and print the plan without changing anything:
+kdrive sync --dry-run
+
+# Verify local vs remote after the run:
+kdrive sync --verify
+```
+
+**Flags:**
+
+| Flag | Description |
+|---|---|
+| `--pull` | Mirror remote → local instead of local → remote |
+| `--dry-run` | Classify and print the plan; change nothing |
+| `--no-delete` | Never delete on the destination |
+| `--force` | Override the deletion guard (and, on pull, the local-drift guard) |
+| `--assume-new` | (push only) Skip the first-run bootstrap; treat every local file as new |
+| `--refresh` | (push only) Re-bootstrap the manifest from a fresh remote index |
+| `--verify` | After the run, report local vs remote presence + size differences |
+| `--jobs N` | Concurrent transfers (default 8) |
+
+**Change detection — manifest baseline.** Push tracks state in a TSV manifest at `$XDG_STATE_HOME/kdrive/<hash>.tsv` (falling back to `~/.local/state/kdrive/`), keyed by a hash of the (local root, remote root) pair. Each entry records size, local mtime, remote file ID, and remote mtime from the last sync. On a steady-state push the planner compares local size + mtime against the manifest: a file is unchanged, an overwrite, a new upload, or a delete — no remote listing required, because the manifest carries remote IDs.
+
+The kDrive API exposes no content hash for existing files, which is why size + mtime is used as the change signal rather than a checksum. Use `--verify` to confirm presence and size correctness after a push.
+
+On the first push to a non-empty remote (or with `--refresh`), `kdrive sync` bootstraps the manifest from a fresh remote index so existing files are not re-uploaded wholesale.
+
+`kdrive` also reads the same `KDRIVE_API_TOKEN`, `KDRIVE_DRIVE_ID`, and related `KDRIVE_*` environment variables as the daemon.
 
 ## Supported operations
 
@@ -88,14 +142,14 @@ make test          # run tests
 make test-race     # with race detector
 make test-coverage # HTML report + total percent
 make lint          # golangci-lint
-make build         # build binary
+make build         # build both binaries (./bin/kdrive-fuse, ./bin/kdrive)
 ```
 
 CI enforces `go vet`, race-detector tests, coverage ≥ 90%, and `golangci-lint` on every push.
 
 ## Releasing
 
-Push a semver tag (`vX.Y.Z`) — the release workflow runs the test suite, then [GoReleaser](https://goreleaser.com) cross-compiles the binaries, writes `checksums.txt`, and publishes a GitHub Release with a changelog grouped from Conventional Commits. The version is embedded via `-ldflags` and reported by `kdrive-fuse --version`.
+Push a semver tag (`vX.Y.Z`) — the release workflow runs the test suite, then [GoReleaser](https://goreleaser.com) cross-compiles both binaries (`kdrive-fuse` and `kdrive`), writes `checksums.txt`, and publishes a GitHub Release with a changelog grouped from Conventional Commits. The version is embedded via `-ldflags` and reported by `kdrive-fuse --version` / `kdrive --version`.
 
 ```bash
 git tag v0.3.0 && git push origin v0.3.0   # triggers .github/workflows/release.yml
