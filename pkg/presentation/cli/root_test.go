@@ -35,8 +35,9 @@ var _ = Describe("Run", func() {
 		Expect(errb.String()).To(BeEmpty())
 	})
 
-	It("rejects an unknown command with exit 2", func() {
+	It("rejects an unknown command with exit 2 and prints usage", func() {
 		Expect(cli.Run([]string{"bogus"}, "dev", out, errb)).To(Equal(2))
 		Expect(errb.String()).To(ContainSubstring("unknown command"))
+		Expect(errb.String()).To(ContainSubstring("Usage:")) // usage is shown on error
 	})
 })
