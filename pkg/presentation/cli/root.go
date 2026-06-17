@@ -15,7 +15,7 @@ Usage:
   kdrive --help | --version
 
 Commands:
-  sync   mirror a local tree to its kDrive copy (push)
+  sync   mirror a local tree and its kDrive copy (push/pull)
 
 Run "kdrive <command> --help" for command-specific help.
 `

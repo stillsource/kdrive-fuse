@@ -109,4 +109,43 @@ var _ = Describe("Pull", func() {
 		_, statErr := os.Stat(filepath.Join(root, "a.jpg"))
 		Expect(os.IsNotExist(statErr)).To(BeTrue())
 	})
+
+	// emptyRemote establishes a baseline (pulls a.jpg), then removes it from the
+	// remote so the next pull plans a local delete.
+	emptyRemote := func() {
+		_, err := syncer.Pull(context.Background(), opts(), rem, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		rem.folders[1] = nil
+		rem.content = map[int64][]byte{}
+	}
+
+	It("with --no-delete, keeps a locally-present file that was deleted remotely", func() {
+		emptyRemote()
+		o := opts()
+		o.NoDelete = true
+		res, err := syncer.Pull(context.Background(), o, rem, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Deleted).To(Equal(0))
+		_, statErr := os.Stat(filepath.Join(root, "a.jpg"))
+		Expect(statErr).NotTo(HaveOccurred()) // still there
+	})
+
+	It("refuses to delete locally beyond the guard threshold", func() {
+		emptyRemote() // baseline of 1, one local delete planned -> 1*5 > 1
+		_, err := syncer.Pull(context.Background(), opts(), rem, 1, mpath, &strings.Builder{})
+		Expect(err).To(MatchError(ContainSubstring("refusing to delete")))
+	})
+
+	It("dry-run prints a local delete (with --force past the guard)", func() {
+		emptyRemote()
+		o := opts()
+		o.DryRun = true
+		o.Force = true
+		var out strings.Builder
+		_, err := syncer.Pull(context.Background(), o, rem, 1, mpath, &out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(out.String()).To(ContainSubstring("delete-local"))
+		_, statErr := os.Stat(filepath.Join(root, "a.jpg"))
+		Expect(statErr).NotTo(HaveOccurred()) // dry-run changed nothing
+	})
 })
