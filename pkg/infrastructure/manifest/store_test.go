@@ -82,4 +82,11 @@ var _ = Describe("Load and Save", func() {
 		_, err := manifest.Load(path)
 		Expect(err).To(HaveOccurred())
 	})
+
+	It("errors on an empty relpath", func() {
+		path := filepath.Join(dir, "bad3.tsv")
+		Expect(os.WriteFile(path, []byte("0\t0\t0\t0\t\n"), 0o644)).To(Succeed())
+		_, err := manifest.Load(path)
+		Expect(err).To(HaveOccurred())
+	})
 })
