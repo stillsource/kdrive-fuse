@@ -24,6 +24,21 @@ builds:
     goarch:
       - amd64
       - arm64
+  - id: kdrive
+    main: ./cmd/kdrive
+    binary: kdrive
+    env:
+      - CGO_ENABLED=0
+    flags:
+      - -trimpath
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+    goos:
+      - linux
+      - darwin
+    goarch:
+      - amd64
+      - arm64
 
 archives:
   - id: kdrive-fuse

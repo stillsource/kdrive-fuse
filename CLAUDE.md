@@ -4,16 +4,19 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 
 ## What this is
 
-A self-contained Go **application** that mounts an Infomaniak kDrive remote as a FUSE filesystem, backed by a disk cache. The product is the `cmd/kdrive-fuse` binary.
+A self-contained Go **application** with two binaries:
 
-The kDrive REST API v2 client lives **inside** the application as an internal infrastructure adapter (`pkg/infrastructure/kdriveapi`). It is no longer a public, importable library — there is no `github.com/stillsource/kdrive-fuse/kdrive` package to depend on. The module is layered under `pkg/` following clean architecture: every other layer depends inward on `pkg/domain`.
+- `cmd/kdrive-fuse` — mounts an Infomaniak kDrive remote as a FUSE filesystem, backed by a disk cache.
+- `cmd/kdrive` — a command-line companion for operations that don't require a mount (currently: `kdrive sync`).
+
+The kDrive REST API v2 client lives **inside** the application as an internal infrastructure adapter (`pkg/infrastructure/kdriveapi`). It is not a public, importable library — there is no `github.com/stillsource/kdrive-fuse/kdrive` package to depend on. The module is layered under `pkg/` following clean architecture: every other layer depends inward on `pkg/domain`.
 
 Built from scratch because WebDAV is not reliably offered on every kDrive account (the `{driveID}.connect.kdrive.infomaniak.com` endpoint returns 403 on PROPFIND with no `DAV:` header).
 
 ## Build / run / ops
 
 ```bash
-make build                                         # ./bin/kdrive-fuse
+make build                                         # ./bin/kdrive-fuse and ./bin/kdrive
 make test                                          # unit + integration tests
 make test-race                                     # with race detector
 make test-coverage                                 # HTML report + total %
@@ -26,9 +29,14 @@ journalctl --user -u kdrive-vfs.service -f         # tail logs
 fusermount -u ~/kDrive-vfs                         # manual unmount
 ```
 
-Binary config lives in `~/.config/kdrive-fuse/env` (loaded by systemd `EnvironmentFile`).
-Required: `KDRIVE_API_TOKEN`, `KDRIVE_DRIVE_ID`, `KDRIVE_MOUNT`.
+Shared `KDRIVE_*` env (loaded by both binaries via `pkg/appconfig`):
+Required: `KDRIVE_API_TOKEN`, `KDRIVE_DRIVE_ID`.
 Optional: `KDRIVE_ROOT_FOLDER_ID` (default `1`), `KDRIVE_BASE_URL`, `KDRIVE_UPLOAD_BASE_URL`, `KDRIVE_CACHE_TTL_SECONDS` (default `30`), `KDRIVE_DISK_CACHE_DIR` (default `~/.cache/kdrive-fuse`), `KDRIVE_DISK_CACHE_MAX_GB` (default `2`).
+
+Daemon-only env (loaded by `cmd/kdrive-fuse/config`):
+Required: `KDRIVE_MOUNT`.
+
+Binary config for the daemon lives in `~/.config/kdrive-fuse/env` (loaded by systemd `EnvironmentFile`).
 
 Test coverage target: **≥ 90%** on `./pkg/...` (the logic layers; `cmd` is composition glue), enforced by CI. Tests still run on `./pkg/... ./cmd/...`.
 
@@ -57,6 +65,8 @@ pkg/usecase/                    application logic — one type per operation, wi
 ├── commit_write.go             CommitWrite (upload + parent-cache invalidate)
 ├── delete_entry.go             DeleteEntry, rename_entry.go RenameEntry, make_dir.go MakeDir
 └── share_file.go               ShareFile (defined; not yet wired into the FUSE tree — see kdshare in ROADMAP)
+pkg/appconfig/                  shared KDRIVE_* env loader used by both binaries
+└── appconfig.go                Config + Load; Config.DI(logger) produces a di.Config
 pkg/infrastructure/             the adapters — concrete implementations of the service ports
 ├── kdriveapi/                  internal HTTP adapter for the kDrive REST API v2 (NOT a public library)
 │   ├── client.go               Client + New(token, driveID, opts ...Option)
@@ -71,32 +81,78 @@ pkg/infrastructure/             the adapters — concrete implementations of the
 ├── listingcache/memory.go      DirCache — TTL cache for directory listings; NewDirCache(ttl)
 ├── contentcache/disk.go        DiskCache — LRU disk cache keyed by (fileID, last_modified_at);
 │                               NewDiskCache(dir, maxBytes, files service.FileReader)
+├── manifest/                   sync baseline store
+│   ├── manifest.go             Manifest (map[rel]Entry) — size, local mtime, remote ID, remote mtime
+│   ├── store.go                Load / Save (TSV serialization)
+│   └── path.go                 PathFor(localRoot, remoteRoot) → $XDG_STATE_HOME/kdrive/<sha256>.tsv
+├── remoteindex/                recursive parallel remote folder snapshot
+│   ├── index.go                Build(ctx, Lister, rootID) → map[rel]Entry (id, size, mtime)
+│   └── resolver.go             Resolver — Resolve(ctx, relDir) resolves or creates a path to its folder ID
 └── di/                         composition root — builds + memoizes the object graph from one Config
     ├── container.go            Config + Container + NewContainer
     ├── client.go               lazy kdriveapi.New (applies base-URL / logger options)
     ├── content_cache.go        lazy contentcache.NewDiskCache
     └── fuse.go                 KDriveFS() + RootNode() — delegates use-case wiring to fuse.NewKDriveFS
-pkg/presentation/fuse/          presentation layer — kernel-driven node/handle state machines
+pkg/syncer/                     sync engine (push/pull orchestration)
+├── plan.go                     PlanPush / Bootstrap — classifies local vs manifest into upload/overwrite/delete
+├── plan_pull.go                PlanPull — classifies remote index vs manifest into download/delete-local
+├── push.go                     Push(ctx, PushOptions, ...) — walk → bootstrap → plan → guard → execute → save
+├── pull.go                     Pull(ctx, PullOptions, ...) — index → load manifest → plan → guard → execute → save
+├── run.go                      RunPush — concurrent executor driver (worker pool, Result)
+├── run_pull.go                 RunPull — concurrent pull executor driver
+├── executor.go                 PushExecutor — upload/overwrite/delete per item
+├── guard.go                    GuardDeletes / GuardPullDeletes — refuse > 20% deletion without --force
+├── walk.go                     WalkLocal — recursive local tree walk → []LocalFile
+└── verify.go                   Verify — post-sync presence + size comparison via a fresh remote index
+pkg/presentation/fuse/          FUSE presentation layer — kernel-driven node/handle state machines
 ├── doc.go                      package-level godoc
 ├── fs.go                       KDriveFS (holds the use cases + uid/gid) + NewKDriveFS (FUSE composition root)
 │                               + NewRootDirNode constructor
 ├── dir.go                      DirNode — Lookup / Readdir / Getattr / Create / Mkdir / Unlink / Rmdir / Rename
 └── file.go                     FileNode + readHandle (disk-cached) + writeHandle (tempfile + commit-on-close)
-cmd/kdrive-fuse/                binary entry point
-├── main.go                     --version + signal handling; builds di.NewContainer → RootNode → fs.Mount
-└── config/env.go               envconfig loader (KDRIVE_* → di.Config)
+pkg/presentation/cli/           CLI presentation layer — subcommand dispatcher + sync command
+├── root.go                     Run(args, version, stdout, stderr) — dispatches --help/--version/sync
+└── sync.go                     runSync — flag parsing + PushOptions/PullOptions → syncer.Push / syncer.Pull
+cmd/kdrive-fuse/                FUSE daemon entry point
+├── main.go                     --version + signal handling; loads appconfig + config.LoadFUSE → di.NewContainer → fs.Mount
+└── config/env.go               mount-only config: FUSE{Mount} loaded from KDRIVE_MOUNT
+cmd/kdrive/                     CLI binary entry point
+└── main.go                     os.Args[1:] → cli.Run
 ```
 
 ### Design choices
 
 - **Clean architecture / ports & adapters**: `pkg/usecase` types depend only on the `pkg/service` interfaces (ports), never on `kdriveapi` directly. `pkg/infrastructure/kdriveapi` is one adapter that satisfies those ports; swapping the backend means writing a new adapter, not touching use cases.
 - **Composition roots**: `pkg/infrastructure/di` is the application composition root — `NewContainer(Config)` builds and memoizes the whole graph (API client → content cache → FUSE filesystem → root node) with lazy getters. It delegates the use-case wiring to `fuse.NewKDriveFS`, which is the FUSE composition root that constructs the listing cache and every use case over the client + content cache. `main.go` just fills a `di.Config` and asks for `RootNode()`.
+- **Shared config**: `pkg/appconfig` provides a single `Load()` function that both `cmd/kdrive-fuse` and `cmd/kdrive` use to read the shared `KDRIVE_*` env vars. The daemon additionally loads `cmd/kdrive-fuse/config.LoadFUSE()` for `KDRIVE_MOUNT`, which is mount-specific and not needed by the CLI.
 - **Services pattern** (inspired by `google/go-github`) inside the API adapter: `client.Files.List(ctx, id)`, `client.Shares.Publish(ctx, id)`.
 - **Functional options** (inspired by `slack-go`): `kdriveapi.New(token, driveID, WithBaseURL(...), WithLogger(...), ...)`.
 - **Typed errors with `scality/go-errors`** in `pkg/domain`: sentinels + automatic stack traces + structured properties. Callers check with `errors.Is(err, domain.ErrNotFound)`.
 - **Strict input validation** in `pkg/domain` before any HTTP call (reject `/`, NUL, control bytes, `.`/`..`, 255-byte cap).
 
 The DI container builds the graph once at boot, so every flow below runs through the use cases the FUSE nodes hold (`KDriveFS.ListDir`, `.ReadFile`, `.SeedContent`, `.CommitWrite`, `.DeleteEntry`, `.RenameEntry`, `.MakeDir`), which in turn call the `pkg/service` ports satisfied by the `kdriveapi` / `listingcache` / `contentcache` adapters.
+
+### kdrive CLI / sync
+
+`cmd/kdrive` is a command-line companion to the FUSE daemon. `pkg/presentation/cli.Run` dispatches subcommands; currently only `sync` exists.
+
+**`kdrive sync [flags] [LOCAL] [REMOTE]`** mirrors a local directory tree and a kDrive folder (push by default; `--pull` for the reverse). It does not require a FUSE mount.
+
+**Data flow — push:**
+
+1. `WalkLocal(localRoot)` → `[]LocalFile` (relative path, size, mtime)
+2. `manifest.Load(manifestPath)` → baseline `Manifest` (or empty on first run)
+3. If manifest is empty (and not `--assume-new`) or `--refresh`: `remoteindex.Build` walks the remote tree concurrently (bounded to 8 parallel `List` calls) → `map[rel]Entry`; `Bootstrap` seeds the manifest so existing remote files are not re-uploaded
+4. `PlanPush` classifies each local file vs the manifest: absent → `OpUpload`, size/mtime changed → `OpOverwrite` (uses the manifest's stored remote ID, no listing needed), manifest entry with no local file → `OpDelete`
+5. `GuardDeletes` rejects > 20% deletions of the baseline without `--force`
+6. `RunPush` executes the plan with a worker pool (`--jobs`, default 8): uploads via `*FilesService`, directory resolution via `remoteindex.Resolver` (resolve-or-create, cached, serialized); updates the manifest on each success
+7. `manifest.Save(manifestPath)` persists the updated baseline
+
+**Manifest location:** `$XDG_STATE_HOME/kdrive/<sha256(absLocal+"\n"+remote)>.tsv` (falls back to `~/.local/state/kdrive/`). One TSV file per (local root, remote root) pair; lives outside the synced tree.
+
+**Change detection rationale:** the kDrive API exposes no content hash for already-uploaded files, so size + mtime is the change signal. A file present on both sides at the same size is treated as correct (uploads are hash-verified by kDrive on ingest). Use `--verify` for an explicit post-sync check.
+
+**Pull direction:** `PlanPull` classifies the remote index vs the manifest: new remote file → `PullDownload`, remote file gone → `PullDeleteLocal`. A download that would overwrite a locally-modified file (differs from baseline) is skipped with a warning unless `--force`.
 
 ### Data flow — read
 
@@ -161,4 +217,4 @@ CI (`.github/workflows/ci.yml`) runs `go vet`, the race detector, coverage gate 
 
 ## Known gaps
 
-See `ROADMAP.md`. Top missing work: `kdshare` CLI, `.trash/` virtual directory, real `Setattr` persistence (`touch` mtime), kDrive xattrs surface, Prometheus metrics.
+See `ROADMAP.md`. Top missing work: `kdshare` CLI subcommand, `.trash/` virtual directory, real `Setattr` persistence (`touch` mtime), kDrive xattrs surface, Prometheus metrics.

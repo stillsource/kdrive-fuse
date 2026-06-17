@@ -113,6 +113,20 @@ var _ = Describe("runSync with a fake backend", func() {
 		Expect(string(data)).To(Equal("hello"))
 	})
 
+	It("runs --verify after a push and reports the comparison", func() {
+		// root already contains a.jpg ("x", size 1); a matching remote means the
+		// push is a no-op and verify reports one OK file.
+		ff := &fakeSyncFiles{
+			listing: map[int64][]domain.FileInfo{
+				1: {{ID: 7, Name: "a.jpg", Type: domain.FileTypeFile, Size: 1, LastModifiedAt: 100}},
+			},
+		}
+		stub(ff, mpath)
+		code := runSync([]string{"--verify", root, "Remote"}, out, errb)
+		Expect(code).To(Equal(0))
+		Expect(out.String()).To(ContainSubstring("verify: ok=1"))
+	})
+
 	It("returns 1 when the backend fails", func() {
 		syncBackend = func(context.Context, string, string, io.Writer) (syncer.Remote, int64, string, error) {
 			return nil, 0, "", errors.New("no config")
