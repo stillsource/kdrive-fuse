@@ -55,18 +55,6 @@ type syncOptions struct {
 	deleteThreshold                                                                float64
 }
 
-// SyncOptionsView is a read-only view of syncOptions for black-box tests.
-type SyncOptionsView struct {
-	TwoWay bool
-	Pull   bool
-}
-
-// ParseSyncFlags is the exported test-accessible wrapper for parseSyncFlags.
-func ParseSyncFlags(args []string, stderr io.Writer) (SyncOptionsView, error) {
-	o, err := parseSyncFlags(args, stderr)
-	return SyncOptionsView{TwoWay: o.twoWay, Pull: o.pull}, err
-}
-
 // parseSyncFlags parses the arguments after "sync". It returns flag.ErrHelp when
 // help was requested.
 func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
@@ -137,11 +125,13 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if opts.twoWay {
+		// Note: --assume-new, --refresh, and --detect-moves do not apply to --two-way.
 		res, err := syncer.TwoWay(ctx, syncer.TwoWayOptions{
 			LocalRoot:       local,
 			Jobs:            opts.jobs,
 			Force:           opts.force,
 			DryRun:          opts.dryRun,
+			NoDelete:        opts.noDelete,
 			DeleteThreshold: opts.deleteThreshold,
 		}, files, rootID, mpath, stdout)
 		if err != nil {

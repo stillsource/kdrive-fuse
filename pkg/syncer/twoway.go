@@ -17,6 +17,7 @@ type TwoWayOptions struct {
 	Jobs            int
 	Force           bool
 	DryRun          bool
+	NoDelete        bool // when true, suppress all deletions on both sides
 	DeleteThreshold float64
 }
 
@@ -32,7 +33,12 @@ type TwoWayResult struct {
 // non-conflicting changes are applied in their direction; a file changed on both
 // sides is reported as a conflict and left untouched. Deletions on each direction
 // are subject to the deletion guard. In DryRun it prints the plan and changes
-// nothing.
+// nothing. On a first run (empty manifest), paths that exist on both sides with
+// the same size are treated as already-synced; paths present on both sides with
+// a DIFFERENT size are reported as a conflict rather than letting one side
+// silently win.
+//
+// Note: --assume-new, --refresh, and --detect-moves do not apply to two-way sync.
 func TwoWay(ctx context.Context, opts TwoWayOptions, files Remote, rootID int64, manifestPath string, out io.Writer) (TwoWayResult, error) {
 	idx, err := remoteindex.Build(ctx, files, rootID)
 	if err != nil {
@@ -50,9 +56,13 @@ func TwoWay(ctx context.Context, opts TwoWayOptions, files Remote, rootID int64,
 		local = nil
 	}
 	if m.Len() == 0 {
-		Bootstrap(m, idx, local)
+		seedSynced(m, idx, local)
 	}
 	plan := PlanTwoWay(local, idx, m)
+	if opts.NoDelete {
+		plan.Push = dropDeletes(plan.Push)
+		plan.Pull = dropPullDeletes(plan.Pull)
+	}
 	for _, rel := range plan.Conflicts {
 		_, _ = fmt.Fprintf(out, "conflict (changed on both sides, skipped): %s\n", rel)
 	}
@@ -81,6 +91,23 @@ func TwoWay(ctx context.Context, opts TwoWayOptions, files Remote, rootID int64,
 		Conflicts: len(plan.Conflicts),
 		Failed:    pushRes.Failed + pullRes.Failed,
 	}, nil
+}
+
+// seedSynced seeds the baseline only for files present on both sides with the
+// SAME size, so a first two-way run does not re-classify an already-synced tree.
+// A path that exists on both sides with a DIFFERING size is deliberately left
+// unseeded, so PlanTwoWay surfaces it as a (both-new) conflict instead of letting
+// one side silently win. (Same-size-but-different-content is indistinguishable
+// without a content hash, which the kDrive API does not expose — the size match
+// is the best available signal, consistent with the rest of the syncer.)
+func seedSynced(m *manifest.Manifest, idx map[string]remoteindex.Entry, local []LocalFile) {
+	for _, f := range local {
+		r, ok := idx[f.Rel]
+		if !ok || r.Size != f.Size {
+			continue
+		}
+		m.Set(f.Rel, manifest.Entry{Size: r.Size, LocalMtime: f.Mtime, RemoteID: r.ID, RemoteMtime: r.Mtime})
+	}
 }
 
 func printTwoWayPlan(out io.Writer, p TwoWayPlan) {

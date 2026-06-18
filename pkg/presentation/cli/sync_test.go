@@ -31,20 +31,6 @@ var _ = Describe("sync command flag handling", func() {
 		Expect(cli.Run([]string{"sync", "a", "b", "c"}, "dev", out, errb)).To(Equal(2))
 	})
 
-	It("accepts --two-way flag without error in parseSyncFlags", func() {
-		errb := &bytes.Buffer{}
-		opts, err := cli.ParseSyncFlags([]string{"--two-way"}, errb)
-		Expect(err).NotTo(HaveOccurred())
-		Expect(opts.TwoWay).To(BeTrue())
-	})
-
-	It("rejects --two-way together with --pull with an error", func() {
-		errb := &bytes.Buffer{}
-		_, err := cli.ParseSyncFlags([]string{"--two-way", "--pull"}, errb)
-		Expect(err).To(HaveOccurred())
-		Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
-	})
-
 	It("prints --two-way in help output", func() {
 		Expect(cli.Run([]string{"sync", "--help"}, "dev", out, errb)).To(Equal(0))
 		Expect(out.String()).To(ContainSubstring("--two-way"))

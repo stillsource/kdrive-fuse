@@ -237,4 +237,237 @@ var _ = Describe("TwoWay", func() {
 		Expect(out.String()).To(ContainSubstring("dry-run"))
 		Expect(strings.Contains(out.String(), "c.jpg")).To(BeTrue())
 	})
+
+	// D: --no-delete in two-way
+	It("--no-delete suppresses deletes on both sides but applies non-delete changes", func() {
+		m := manifest.New()
+		// del-push.jpg: tracked locally but now missing → would plan OpDelete push
+		m.Set("del-push.jpg", manifest.Entry{Size: 4, LocalMtime: 100, RemoteID: 51, RemoteMtime: 200})
+		// del-pull.jpg: tracked but now gone remotely → would plan PullDeleteLocal
+		m.Set("del-pull.jpg", manifest.Entry{Size: 4, LocalMtime: 100, RemoteID: 52, RemoteMtime: 200})
+		// upload-me.jpg: new local file → should still push
+		saveManifest(m, mpath)
+
+		// Local tree: del-push.jpg absent (will plan delete), del-pull.jpg present, new upload-me.jpg.
+		writeTempFileWithMtime(root, "del-pull.jpg", "data", 100)
+		writeTempFile(root, "upload-me.jpg", "new")
+
+		// Remote: del-push.jpg still present (same as baseline — so only local delete),
+		// del-pull.jpg GONE from remote (plan PullDeleteLocal),
+		// upload-me.jpg absent (no remote counterpart for this new local file).
+		files.folders[1] = []domain.FileInfo{
+			{ID: 51, Name: "del-push.jpg", Type: domain.FileTypeFile, Size: 4, LastModifiedAt: 200},
+		}
+		files.byID[51] = files.folders[1][0]
+		// del-pull.jpg is absent from remote index — PlanTwoWay sees rdel for it.
+
+		opts := syncer.TwoWayOptions{
+			LocalRoot:       root,
+			Jobs:            1,
+			NoDelete:        true,
+			DeleteThreshold: 0.5,
+		}
+		res, err := syncer.TwoWay(context.Background(), opts, files, 1, mpath, out)
+		Expect(err).NotTo(HaveOccurred())
+
+		// No remote deletes: del-push.jpg must not appear in files.deleted.
+		Expect(files.deleted).To(BeEmpty())
+
+		// No local deletes: del-pull.jpg must still exist on disk.
+		_, statErr := os.Stat(filepath.Join(root, "del-pull.jpg"))
+		Expect(statErr).NotTo(HaveOccurred())
+
+		// Non-delete push (upload-me.jpg) should still happen.
+		Expect(res.Pushed).To(BeNumerically(">=", 1))
+		names := make([]string, 0, len(files.uploads))
+		for _, u := range files.uploads {
+			names = append(names, u.Name)
+		}
+		Expect(names).To(ContainElement("upload-me.jpg"))
+	})
+
+	// D: first-run divergence → conflict (not silent push)
+	It("first-run with same path but different sizes surfaces a conflict, not a push", func() {
+		// Empty manifest — seedSynced should leave differing-size file unseeded.
+		m := manifest.New()
+		saveManifest(m, mpath)
+
+		localContent := "local-version" // 13 bytes
+		writeTempFile(root, "shared.jpg", localContent)
+
+		// Remote has same path but different size (7 bytes).
+		files.folders[1] = []domain.FileInfo{
+			{ID: 60, Name: "shared.jpg", Type: domain.FileTypeFile, Size: 7, LastModifiedAt: 100},
+		}
+		files.byID[60] = files.folders[1][0]
+		files.content = map[int64][]byte{60: []byte("remote!")}
+
+		opts := syncer.TwoWayOptions{
+			LocalRoot:       root,
+			Jobs:            1,
+			DeleteThreshold: 0.5,
+		}
+		res, err := syncer.TwoWay(context.Background(), opts, files, 1, mpath, out)
+		Expect(err).NotTo(HaveOccurred())
+
+		// Must be reported as a conflict.
+		Expect(res.Conflicts).To(Equal(1))
+		Expect(out.String()).To(ContainSubstring("conflict"))
+
+		// Must NOT have been pushed (not in uploads).
+		for _, u := range files.uploads {
+			Expect(u.Name).NotTo(Equal("shared.jpg"))
+		}
+
+		// Local bytes must be untouched.
+		data, err := os.ReadFile(filepath.Join(root, "shared.jpg"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(data)).To(Equal(localContent))
+
+		// Not in deleted either.
+		Expect(files.deleted).NotTo(ContainElement(int64(60)))
+	})
+
+	// D: guard rejection — push deletes exceed threshold
+	It("returns an error and applies nothing when push deletes exceed the threshold", func() {
+		// Seed a baseline with 5 files, none present locally → 5 planned push deletes.
+		m := manifest.New()
+		m.Set("a.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 101, RemoteMtime: 1})
+		m.Set("b.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 102, RemoteMtime: 1})
+		m.Set("c.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 103, RemoteMtime: 1})
+		m.Set("d.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 104, RemoteMtime: 1})
+		m.Set("e.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 105, RemoteMtime: 1})
+		saveManifest(m, mpath)
+
+		// Remote mirrors baseline (unchanged) — all 5 files still present remotely.
+		files.folders[1] = []domain.FileInfo{
+			{ID: 101, Name: "a.jpg", Type: domain.FileTypeFile, Size: 1, LastModifiedAt: 1},
+			{ID: 102, Name: "b.jpg", Type: domain.FileTypeFile, Size: 1, LastModifiedAt: 1},
+			{ID: 103, Name: "c.jpg", Type: domain.FileTypeFile, Size: 1, LastModifiedAt: 1},
+			{ID: 104, Name: "d.jpg", Type: domain.FileTypeFile, Size: 1, LastModifiedAt: 1},
+			{ID: 105, Name: "e.jpg", Type: domain.FileTypeFile, Size: 1, LastModifiedAt: 1},
+		}
+		for _, fi := range files.folders[1] {
+			files.byID[fi.ID] = fi
+		}
+		// Local is EMPTY — all 5 will be planned as push deletes (100% > 20%).
+
+		opts := syncer.TwoWayOptions{
+			LocalRoot:       root, // empty temp dir
+			Jobs:            1,
+			Force:           false,
+			DeleteThreshold: 0.20,
+		}
+		_, err := syncer.TwoWay(context.Background(), opts, files, 1, mpath, out)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("refusing to delete"))
+		// Nothing should have been deleted or uploaded.
+		Expect(files.deleted).To(BeEmpty())
+		Expect(files.uploads).To(BeEmpty())
+	})
+
+	// D: guard rejection — pull deletes exceed threshold
+	It("returns an error and applies nothing when pull deletes exceed the threshold", func() {
+		// Baseline: 5 local files tracked; remote goes empty → 5 planned pull deletes.
+		m := manifest.New()
+		m.Set("a.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 201, RemoteMtime: 1})
+		m.Set("b.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 202, RemoteMtime: 1})
+		m.Set("c.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 203, RemoteMtime: 1})
+		m.Set("d.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 204, RemoteMtime: 1})
+		m.Set("e.jpg", manifest.Entry{Size: 1, LocalMtime: 1, RemoteID: 205, RemoteMtime: 1})
+		saveManifest(m, mpath)
+
+		// Create matching local files so there are no push deletes (local unchanged).
+		writeTempFileWithMtime(root, "a.jpg", "x", 1)
+		writeTempFileWithMtime(root, "b.jpg", "x", 1)
+		writeTempFileWithMtime(root, "c.jpg", "x", 1)
+		writeTempFileWithMtime(root, "d.jpg", "x", 1)
+		writeTempFileWithMtime(root, "e.jpg", "x", 1)
+
+		// Remote is EMPTY — all 5 trigger PullDeleteLocal (100% > 20%).
+		files.folders[1] = []domain.FileInfo{}
+
+		opts := syncer.TwoWayOptions{
+			LocalRoot:       root,
+			Jobs:            1,
+			Force:           false,
+			DeleteThreshold: 0.20,
+		}
+		_, err := syncer.TwoWay(context.Background(), opts, files, 1, mpath, out)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("refusing to delete"))
+		Expect(files.deleted).To(BeEmpty())
+		Expect(files.uploads).To(BeEmpty())
+	})
+
+	// D: strengthen conflict no-write assertion (local bytes untouched, not deleted)
+	It("conflict leaves local bytes untouched and does not delete the file", func() {
+		m := manifest.New()
+		m.Set("both.jpg", manifest.Entry{Size: 10, LocalMtime: 100, RemoteID: 70, RemoteMtime: 200})
+		saveManifest(m, mpath)
+
+		localContent := "local-changed" // size 13, differs from baseline 10
+		writeTempFile(root, "both.jpg", localContent)
+
+		// Remote also changed.
+		files.folders[1] = []domain.FileInfo{
+			{ID: 70, Name: "both.jpg", Type: domain.FileTypeFile, Size: 99, LastModifiedAt: 999},
+		}
+		files.byID[70] = files.folders[1][0]
+
+		opts := syncer.TwoWayOptions{
+			LocalRoot:       root,
+			Jobs:            1,
+			DeleteThreshold: 0.5,
+		}
+		res, err := syncer.TwoWay(context.Background(), opts, files, 1, mpath, out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Conflicts).To(Equal(1))
+
+		// Local bytes must be untouched.
+		data, err := os.ReadFile(filepath.Join(root, "both.jpg"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(data)).To(Equal(localContent))
+
+		// Not uploaded.
+		for _, u := range files.uploads {
+			Expect(u.Name).NotTo(Equal("both.jpg"))
+		}
+		// Not deleted.
+		Expect(files.deleted).NotTo(ContainElement(int64(70)))
+	})
+
+	// D: multi-item dry-run covers printTwoWayPlan loops
+	It("dry-run with one push and one pull item prints both in output", func() {
+		m := manifest.New()
+		// push-it.jpg changed locally (size differs from baseline).
+		m.Set("push-it.jpg", manifest.Entry{Size: 5, LocalMtime: 100, RemoteID: 80, RemoteMtime: 200})
+		// pull-it.jpg unchanged locally but changed remotely.
+		m.Set("pull-it.jpg", manifest.Entry{Size: 5, LocalMtime: 100, RemoteID: 81, RemoteMtime: 200})
+		saveManifest(m, mpath)
+
+		writeTempFile(root, "push-it.jpg", "changed!")            // 8 bytes ≠ baseline 5
+		writeTempFileWithMtime(root, "pull-it.jpg", "hello", 100) // 5 bytes, mtime=100 matches baseline
+
+		files.folders[1] = []domain.FileInfo{
+			{ID: 80, Name: "push-it.jpg", Type: domain.FileTypeFile, Size: 5, LastModifiedAt: 200}, // unchanged remote
+			{ID: 81, Name: "pull-it.jpg", Type: domain.FileTypeFile, Size: 9, LastModifiedAt: 999}, // remote changed
+		}
+		files.byID[80] = files.folders[1][0]
+		files.byID[81] = files.folders[1][1]
+
+		opts := syncer.TwoWayOptions{
+			LocalRoot:       root,
+			Jobs:            1,
+			DryRun:          true,
+			DeleteThreshold: 0.5,
+		}
+		_, err := syncer.TwoWay(context.Background(), opts, files, 1, mpath, out)
+		Expect(err).NotTo(HaveOccurred())
+		output := out.String()
+		Expect(output).To(ContainSubstring("push-it.jpg"))
+		Expect(output).To(ContainSubstring("pull-it.jpg"))
+		Expect(output).To(ContainSubstring("push"))
+		Expect(output).To(ContainSubstring("pull"))
+	})
 })
