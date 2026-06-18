@@ -130,3 +130,19 @@ var _ = Describe("lookuperFor / .env precedence", func() {
 		Expect(c.DriveID).To(Equal("7"))
 	})
 })
+
+var _ = Describe("the committed .env.example", func() {
+	It("uses full-line comments so `cp .env.example .env` parses cleanly", func() {
+		// Regression guard: values are taken literally, so an inline `# comment`
+		// after a value would be kept and break the int-typed knobs. Every active
+		// line in the example must therefore put its comment on its own line.
+		data, err := os.ReadFile(filepath.Join("..", "..", ".env.example"))
+		Expect(err).NotTo(HaveOccurred())
+		m, err := parseDotEnv(string(data))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(m["KDRIVE_ROOT_FOLDER_ID"]).To(Equal("1"))
+		Expect(m["KDRIVE_CACHE_TTL_SECONDS"]).To(Equal("30"))
+		Expect(m["KDRIVE_DISK_CACHE_MAX_GB"]).To(Equal("2"))
+		Expect(m["KDRIVE_WALK_PARALLELISM"]).To(Equal("8"))
+	})
+})
