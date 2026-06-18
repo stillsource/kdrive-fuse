@@ -43,6 +43,7 @@ type recordingFiles struct {
 	byID             map[int64]domain.FileInfo // current remote state by id (for Stat)
 	statErr          map[int64]error           // when set for an id, Stat returns this error
 	content          map[int64][]byte          // file content by id (for DownloadStream)
+	mtimeAfterMove   int64                     // when >0, Move/Rename set the file's LastModifiedAt to this (server touches mtime on metadata change)
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
@@ -122,6 +123,13 @@ func (r *recordingFiles) Move(_ context.Context, fileID, destDirID int64) error 
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.moved = append(r.moved, [2]int64{fileID, destDirID})
+	if info, ok := r.byID[fileID]; ok {
+		info.ParentID = destDirID
+		if r.mtimeAfterMove > 0 {
+			info.LastModifiedAt = r.mtimeAfterMove
+		}
+		r.byID[fileID] = info
+	}
 	return nil
 }
 
@@ -134,6 +142,9 @@ func (r *recordingFiles) Rename(_ context.Context, fileID int64, newName string)
 	r.renamed = append(r.renamed, renameCall{id: fileID, name: newName})
 	if info, ok := r.byID[fileID]; ok {
 		info.Name = newName
+		if r.mtimeAfterMove > 0 {
+			info.LastModifiedAt = r.mtimeAfterMove
+		}
 		r.byID[fileID] = info
 		return info, nil
 	}
@@ -246,5 +257,88 @@ var _ = Describe("PushExecutor", func() {
 		id, _, err := ex.Upload(context.Background(), "a.jpg", 5)
 		Expect(err).NotTo(HaveOccurred())
 		Expect(id).To(Equal(int64(77))) // the directory was skipped
+	})
+
+	Context("Move idempotency on a crash re-run", func() {
+		// Each case simulates a re-run after the first run relocated the file but
+		// crashed before the manifest was checkpointed, so the plan still asks to
+		// move from the old path. The live remote is already (partly) at target.
+		BeforeEach(func() {
+			files.folders[1] = []domain.FileInfo{{ID: 50, Name: "sub", Type: domain.FileTypeDir}}
+		})
+
+		It("issues no mutating call when parent and name already match (cross-folder move re-run)", func() {
+			files.byID = map[int64]domain.FileInfo{
+				42: {ID: 42, Name: "a.jpg", Type: domain.FileTypeFile, ParentID: 50, LastModifiedAt: 1234},
+			}
+			mtime, err := ex.Move(context.Background(), "a.jpg", "sub/a.jpg", 42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mtime).To(Equal(int64(1234))) // cur's mtime; no re-Stat after a no-op
+			Expect(files.moved).To(BeEmpty())
+			Expect(files.renamed).To(BeEmpty())
+			Expect(files.folders[1]).To(HaveLen(1)) // resolving the dest created no phantom folder
+		})
+
+		It("issues no Move and no Rename when both already match (move+rename re-run)", func() {
+			files.byID = map[int64]domain.FileInfo{
+				42: {ID: 42, Name: "b.jpg", Type: domain.FileTypeFile, ParentID: 50, LastModifiedAt: 1234},
+			}
+			mtime, err := ex.Move(context.Background(), "a.jpg", "sub/b.jpg", 42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mtime).To(Equal(int64(1234)))
+			Expect(files.moved).To(BeEmpty())
+			Expect(files.renamed).To(BeEmpty())
+		})
+
+		It("self-heals a partial run: skips the applied Move, issues only the missing Rename", func() {
+			// First run moved a.jpg under "sub" but crashed before renaming to b.jpg.
+			files.byID = map[int64]domain.FileInfo{
+				42: {ID: 42, Name: "a.jpg", Type: domain.FileTypeFile, ParentID: 50, LastModifiedAt: 1234},
+			}
+			_, err := ex.Move(context.Background(), "a.jpg", "sub/b.jpg", 42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(files.moved).To(BeEmpty())                                      // already under sub -> Move skipped
+			Expect(files.renamed).To(Equal([]renameCall{{id: 42, name: "b.jpg"}})) // only the Rename ran
+		})
+
+		It("still issues the Move when parent_id is absent, and returns the post-mutation mtime", func() {
+			// cur.ParentID == 0 (API omitted parent_id) must not skip the Move, and
+			// the returned mtime must come from the SECOND Stat (post-mutation), not
+			// the stale cur.LastModifiedAt.
+			files.mtimeAfterMove = 5555 // server touches mtime when the file is moved
+			files.byID = map[int64]domain.FileInfo{
+				42: {ID: 42, Name: "a.jpg", Type: domain.FileTypeFile, LastModifiedAt: 1234},
+			}
+			mtime, err := ex.Move(context.Background(), "a.jpg", "sub/a.jpg", 42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(files.moved).To(Equal([][2]int64{{42, 50}})) // fell back to issuing the Move
+			Expect(mtime).To(Equal(int64(5555)))                // re-Stat after mutating, not stale 1234
+		})
+
+		It("corrects an out-of-band relocation: same-dir rename intent, but the file drifted to another parent", func() {
+			// Manifest intent is a pure rename within root (a.jpg -> b.jpg), but
+			// another client moved the file into "sub" since the snapshot. The live
+			// parent (50) is authoritative, so we move it back to root AND rename it,
+			// instead of renaming it in place inside the wrong folder.
+			files.byID = map[int64]domain.FileInfo{
+				42: {ID: 42, Name: "a.jpg", Type: domain.FileTypeFile, ParentID: 50, LastModifiedAt: 1234},
+			}
+			_, err := ex.Move(context.Background(), "a.jpg", "b.jpg", 42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(files.moved).To(Equal([][2]int64{{42, 1}}))                     // moved back to root (id 1)
+			Expect(files.renamed).To(Equal([]renameCall{{id: 42, name: "b.jpg"}})) // and renamed
+		})
+
+		It("is a no-op for a same-dir rename re-run already at the target name", func() {
+			// Pure rename within root that the first run already applied (Name=b.jpg).
+			files.byID = map[int64]domain.FileInfo{
+				42: {ID: 42, Name: "b.jpg", Type: domain.FileTypeFile, ParentID: 1, LastModifiedAt: 1234},
+			}
+			mtime, err := ex.Move(context.Background(), "a.jpg", "b.jpg", 42)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(mtime).To(Equal(int64(1234)))
+			Expect(files.moved).To(BeEmpty())
+			Expect(files.renamed).To(BeEmpty())
+		})
 	})
 })
