@@ -30,6 +30,7 @@ type recordingFiles struct {
 	notFoundOnDelete map[int64]bool            // Delete of these ids returns domain.ErrNotFound
 	listErr          error                     // when set, List returns this error
 	byID             map[int64]domain.FileInfo // current remote state by id (for Stat)
+	statErr          map[int64]error           // when set for an id, Stat returns this error
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
@@ -77,6 +78,9 @@ func (r *recordingFiles) Upload(_ context.Context, in service.UploadInput) (doma
 func (r *recordingFiles) Stat(_ context.Context, fileID int64) (domain.FileInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if err, ok := r.statErr[fileID]; ok {
+		return domain.FileInfo{}, err
+	}
 	if info, ok := r.byID[fileID]; ok {
 		return info, nil
 	}

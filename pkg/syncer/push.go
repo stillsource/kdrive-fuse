@@ -106,14 +106,18 @@ func filterPushDrift(ctx context.Context, items []Item, m *manifest.Manifest, st
 			if it.Op == OpDelete {
 				kept = append(kept, it) // already gone; the idempotent delete no-ops
 			} else {
-				_, _ = fmt.Fprintf(out, "skip (remote gone): %s\n", it.Rel)
+				_, _ = fmt.Fprintf(out, "skip (remote gone, --force to re-upload): %s\n", it.Rel)
 			}
 			continue
 		}
 		if err != nil {
 			return nil, fmt.Errorf("check remote drift for %s: %w", it.Rel, err)
 		}
-		e, _ := m.Get(it.Rel)
+		e, ok := m.Get(it.Rel)
+		if !ok {
+			kept = append(kept, it) // untracked rel: no baseline to compare, let it through
+			continue
+		}
 		if info.LastModifiedAt != e.RemoteMtime || info.Size != e.Size {
 			_, _ = fmt.Fprintf(out, "skip (remote changed): %s\n", it.Rel)
 			continue
