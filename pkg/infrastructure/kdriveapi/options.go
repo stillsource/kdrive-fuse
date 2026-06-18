@@ -9,6 +9,23 @@ import (
 // Option configures a Client at construction time.
 type Option func(*Client)
 
+// metricsSink is the (optional) metrics surface the client reports to.
+// *metrics.Registry satisfies it; nil disables reporting.
+type metricsSink interface {
+	ObserveRequest(method, status string)
+	AddBytesUploaded(n int64)
+	AddBytesDownloaded(n int64)
+}
+
+// WithMetrics reports request counts and transfer bytes to m. nil disables it.
+func WithMetrics(m metricsSink) Option {
+	return func(k *Client) {
+		if m != nil {
+			k.metrics = m
+		}
+	}
+}
+
 // WithHTTPClient injects a custom HTTP client (for custom transport, timeouts, etc.).
 // It is used for BOTH reads and uploads, so a test double or custom transport
 // applies everywhere. Default read client: &http.Client{Timeout: 60s};

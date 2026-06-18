@@ -15,26 +15,58 @@ import (
 
 var _ service.ContentCache = (*DiskCache)(nil)
 
+// cacheObserver receives cache hit/miss and byte-usage events.
+// *metrics.Registry satisfies it; nil disables reporting.
+type cacheObserver interface {
+	CacheHit()
+	CacheMiss()
+	SetCacheBytes(n int64)
+}
+
 // DiskCache stores file content on disk keyed by (fileID, mtime).
 // New mtime → new path → old entries are orphaned and reclaimed by the LRU cleanup.
 type DiskCache struct {
 	dir     string
 	maxB    int64
 	files   service.FileReader
+	obs     cacheObserver
 	locks   sync.Map // fileID → *sync.Mutex
 	evictMu sync.Mutex
 }
 
 // NewDiskCache creates/uses dir to store cached file bodies, capped at maxBytes.
-func NewDiskCache(dir string, maxBytes int64, files service.FileReader) (*DiskCache, error) {
+func NewDiskCache(dir string, maxBytes int64, files service.FileReader, obs cacheObserver) (*DiskCache, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, fmt.Errorf("disk cache mkdir: %w", err)
 	}
-	return &DiskCache{dir: dir, maxB: maxBytes, files: files}, nil
+	return &DiskCache{dir: dir, maxB: maxBytes, files: files, obs: obs}, nil
 }
 
 func (c *DiskCache) path(fileID, mtime int64) string {
 	return filepath.Join(c.dir, fmt.Sprintf("%d_%d", fileID, mtime))
+}
+
+// notifyBytes recomputes the total on-disk size and updates the observer gauge.
+func (c *DiskCache) notifyBytes() {
+	if c.obs == nil {
+		return
+	}
+	entries, err := os.ReadDir(c.dir)
+	if err != nil {
+		return
+	}
+	var total int64
+	for _, e := range entries {
+		if e.IsDir() {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		total += info.Size()
+	}
+	c.obs.SetCacheBytes(total)
 }
 
 // Open returns an *os.File for reading. Downloads and caches it if missing.
@@ -50,11 +82,18 @@ func (c *DiskCache) Open(ctx context.Context, fileID, mtime, size int64) (*os.Fi
 	if f, err := os.Open(p); err == nil {
 		now := time.Now()
 		_ = os.Chtimes(p, now, now) // bump atime for LRU
+		if c.obs != nil {
+			c.obs.CacheHit()
+		}
 		return f, nil
 	}
 
 	if err := c.evictIfNeeded(size); err != nil {
 		return nil, err
+	}
+
+	if c.obs != nil {
+		c.obs.CacheMiss()
 	}
 
 	tmp := p + ".tmp"
@@ -80,6 +119,7 @@ func (c *DiskCache) Open(ctx context.Context, fileID, mtime, size int64) (*os.Fi
 		_ = os.Remove(tmp)
 		return nil, fmt.Errorf("cache rename: %w", err)
 	}
+	c.notifyBytes()
 	return os.Open(p)
 }
 
@@ -115,6 +155,9 @@ func (c *DiskCache) evictIfNeeded(need int64) error {
 		})
 	}
 	if total+need <= c.maxB {
+		if c.obs != nil {
+			c.obs.SetCacheBytes(total)
+		}
 		return nil
 	}
 	sort.Slice(items, func(i, j int) bool { return items[i].atime < items[j].atime })
@@ -125,6 +168,9 @@ func (c *DiskCache) evictIfNeeded(need int64) error {
 		if err := os.Remove(it.path); err == nil {
 			total -= it.size
 		}
+	}
+	if c.obs != nil {
+		c.obs.SetCacheBytes(total)
 	}
 	return nil
 }

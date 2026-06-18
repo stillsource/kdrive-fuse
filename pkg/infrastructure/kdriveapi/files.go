@@ -23,6 +23,27 @@ type FilesService struct {
 	client *Client
 }
 
+func (c *Client) addUploaded(n int64) {
+	if c.metrics != nil {
+		c.metrics.AddBytesUploaded(n)
+	}
+}
+
+type countingReadCloser struct {
+	rc  io.ReadCloser
+	add func(int64)
+}
+
+func (c countingReadCloser) Read(p []byte) (int, error) {
+	n, err := c.rc.Read(p)
+	if n > 0 {
+		c.add(int64(n))
+	}
+	return n, err
+}
+
+func (c countingReadCloser) Close() error { return c.rc.Close() }
+
 // listPageSize is the per-page parameter used by List (kDrive's default is 10).
 const listPageSize = 500
 
@@ -103,6 +124,9 @@ func (s *FilesService) DownloadStream(ctx context.Context, fileID, off, length i
 		"", nil, headers)
 	if err != nil {
 		return nil, err
+	}
+	if s.client.metrics != nil {
+		return countingReadCloser{resp.Body, s.client.metrics.AddBytesDownloaded}, nil
 	}
 	return resp.Body, nil
 }
@@ -254,6 +278,7 @@ func (s *FilesService) Upload(ctx context.Context, in service.UploadInput) (doma
 				scerr.CausedBy(err),
 			)
 		}
+		s.client.addUploaded(in.Size)
 		return out.Data, nil
 	}
 

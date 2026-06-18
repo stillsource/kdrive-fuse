@@ -55,9 +55,16 @@ export KDRIVE_DISK_CACHE_MAX_GB="2"
 export KDRIVE_CACHE_TTL_SECONDS="30"
 export KDRIVE_READONLY="1"                       # mount read-only (reject all writes with EROFS)
 export KDRIVE_LOG_FORMAT="text"                  # log format: text (default) or json (jq-friendly)
+export KDRIVE_METRICS_ADDR=":9090"               # serve Prometheus /metrics on this addr (off by default)
 
 kdrive-fuse
 ```
+
+When `KDRIVE_METRICS_ADDR` is set (e.g. `:9090`), the daemon serves a Prometheus
+text-format `/metrics` endpoint on that address. It is off by default. Exposed
+metrics: `kdrive_api_requests_total{method,status}`, `kdrive_bytes_uploaded_total`,
+`kdrive_bytes_downloaded_total`, `kdrive_cache_hits_total`,
+`kdrive_cache_misses_total`, and the `kdrive_cache_bytes_on_disk` gauge.
 
 Or copy [`.env.example`](./.env.example) to `.env`, fill it in, and load it with `set -a; source .env; set +a` before running — `.env` is gitignored, so your token never lands in the repo.
 

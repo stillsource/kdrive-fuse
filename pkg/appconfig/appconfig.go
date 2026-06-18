@@ -29,6 +29,7 @@ type Config struct {
 	DiskCacheMaxGB int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
 	ReadOnly       bool   `env:"KDRIVE_READONLY,default=false"`
 	LogFormat      string `env:"KDRIVE_LOG_FORMAT,default=text"`
+	MetricsAddr    string `env:"KDRIVE_METRICS_ADDR,default="`
 }
 
 // Load reads the shared KDRIVE_* environment into a Config.

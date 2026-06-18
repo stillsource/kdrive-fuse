@@ -165,7 +165,7 @@ var _ = Describe("readHandle", func() {
 			},
 		}
 		ctx = context.Background()
-		disk, _ := contentcache.NewDiskCache(dir, 1024, fake)
+		disk, _ := contentcache.NewDiskCache(dir, 1024, fake, nil)
 		kdfs = NewKDriveFS(fake, time.Second, disk, false)
 	})
 

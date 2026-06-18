@@ -31,6 +31,7 @@ type Client struct {
 	driveID        string
 	maxRetries     int
 	initialBackoff time.Duration
+	metrics        metricsSink
 
 	Files  *FilesService
 	Shares *SharesService
