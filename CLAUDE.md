@@ -146,6 +146,8 @@ The DI container builds the graph once at boot, so every flow below runs through
 
 **`kdrive trash`** manages the kDrive trash via four subcommands: `list` (pages all trashed items, prints id/name/size), `restore <FILE_ID>` (POST /trash/{id}/restore), `purge <FILE_ID> --yes` (DELETE /trash/{id}, permanent), `empty --yes` (DELETE /trash, permanent). Destructive operations (`purge`, `empty`) require `--yes` or exit 1 with an irreversibility warning. The `trashBackend` package-var seam and `trasher` interface (in `trash.go`) follow the same pattern as `shareBackend`/`syncBackend`. Backed by four new methods on `*kdriveapi.FilesService`: `ListTrash`, `RestoreTrash`, `PurgeTrash`, `EmptyTrash` (in `pkg/infrastructure/kdriveapi/trash.go`).
 
+**`kdrive search QUERY...`** performs full-text search by joining positional args with spaces and calling `GET /files/search?q=<url-encoded-query>&per_page=500&page=N` (paginated). Prints one line per match (`\t{id}\t{name}\t({size} bytes)\n`); prints "no matches" on zero results; empty query exits 2 with usage. The `searchBackend` package-var seam (in `search.go`) returns `client.Files` as a `service.Searcher`. Backed by `FilesService.Search` in `pkg/infrastructure/kdriveapi/search.go`; port `pkg/service/searcher.go`; use case `pkg/usecase/search_files.go`. Endpoint note: android kDrive uses a v3 path; this client appends `/files/search` to the v2 base — verify against the live API (a wrong endpoint only errors, non-destructively).
+
 **`kdrive sync [flags] [LOCAL] [REMOTE]`** mirrors a local directory tree and a kDrive folder (push by default; `--pull` for the reverse). It does not require a FUSE mount.
 
 **Data flow — push:**
