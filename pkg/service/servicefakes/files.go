@@ -25,6 +25,7 @@ type FilesFake struct {
 	DeleteStub         func(ctx context.Context, fileID int64) error
 	RenameStub         func(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
 	MoveStub           func(ctx context.Context, fileID, destDirID int64) error
+	SetModifiedAtStub  func(ctx context.Context, fileID, modifiedAt int64) (domain.FileInfo, error)
 
 	// Results — keyed by the primary identifier.
 	ListResults           map[int64]ListResult
@@ -36,6 +37,7 @@ type FilesFake struct {
 	DeleteResults         map[int64]error
 	RenameResults         map[int64]RenameResult
 	MoveResults           map[int64]error
+	SetModifiedAtResults  map[int64]SetModifiedAtResult
 
 	// Calls — inspected by tests.
 	ListCalls           []ListCall
@@ -47,6 +49,7 @@ type FilesFake struct {
 	DeleteCalls         []int64
 	RenameCalls         []RenameCall
 	MoveCalls           []MoveCall
+	SetModifiedAtCalls  []SetModifiedAtCall
 }
 
 type ListCall struct{ FolderID int64 }
@@ -98,6 +101,14 @@ type RenameResult struct {
 
 type MoveCall struct {
 	FileID, DestDirID int64
+}
+
+type SetModifiedAtCall struct {
+	FileID, ModifiedAt int64
+}
+type SetModifiedAtResult struct {
+	Info domain.FileInfo
+	Err  error
 }
 
 var (
@@ -291,4 +302,26 @@ func (f *FilesFake) Move(ctx context.Context, fileID, destDirID int64) error {
 		return err
 	}
 	return nil
+}
+
+func (f *FilesFake) SetModifiedAt(ctx context.Context, fileID, modifiedAt int64) (domain.FileInfo, error) {
+	f.mu.Lock()
+	f.SetModifiedAtCalls = append(f.SetModifiedAtCalls, SetModifiedAtCall{FileID: fileID, ModifiedAt: modifiedAt})
+	stub := f.SetModifiedAtStub
+	res, ok := f.SetModifiedAtResults[fileID]
+	f.mu.Unlock()
+	if stub != nil {
+		return stub(ctx, fileID, modifiedAt)
+	}
+	if ok {
+		return res.Info, res.Err
+	}
+	return domain.FileInfo{}, nil
+}
+
+// GetSetModifiedAtCalls returns a copy of SetModifiedAtCalls.
+func (f *FilesFake) GetSetModifiedAtCalls() []SetModifiedAtCall {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]SetModifiedAtCall(nil), f.SetModifiedAtCalls...)
 }

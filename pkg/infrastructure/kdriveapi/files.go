@@ -313,6 +313,28 @@ func (s *FilesService) Rename(ctx context.Context, fileID int64, newName string)
 	return resp.Data, nil
 }
 
+// SetModifiedAt updates a file's last-modified time (Unix seconds) without
+// re-uploading its content. POST /files/{id}/last-modified.
+// (Endpoint confirmed in Infomaniak's desktop-kDrive client; appended to the
+// existing drive base like rename/move.)
+func (s *FilesService) SetModifiedAt(ctx context.Context, fileID, modifiedAt int64) (domain.FileInfo, error) {
+	if err := domain.ValidateFileID(fileID); err != nil {
+		return domain.FileInfo{}, err
+	}
+	body, err := json.Marshal(map[string]int64{"last_modified_at": modifiedAt})
+	if err != nil {
+		return domain.FileInfo{}, scerr.Wrap(domain.ErrServer, scerr.WithDetailf("marshal set-mtime: %v", err))
+	}
+	endpoint := fmt.Sprintf("/files/%d/last-modified", fileID)
+	var resp struct {
+		Data domain.FileInfo `json:"data"`
+	}
+	if err := s.client.decodeJSON(ctx, http.MethodPost, endpoint, body, &resp); err != nil {
+		return domain.FileInfo{}, err
+	}
+	return resp.Data, nil
+}
+
 // Move relocates a file or directory into destDirID (preserves its name).
 func (s *FilesService) Move(ctx context.Context, fileID, destDirID int64) error {
 	if err := domain.ValidateFileID(fileID); err != nil {

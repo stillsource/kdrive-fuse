@@ -53,6 +53,9 @@ kDrive's upload endpoint has intermittent 502 / slow-response windows. Uploads (
 
 Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infrastructure/manifest` (TSV store), `pkg/infrastructure/remoteindex` (`Build` + `Resolver`), `pkg/presentation/cli` (`Run` dispatcher + `sync` command), `pkg/syncer` (planner, runners, executors, `WalkLocal`, guards, `Verify`).
 
+### Setattr `utimens` → `last_modified_at` (touch support)
+`Setattr` now persists mtime via `POST /files/{id}/last-modified` with body `{"last_modified_at": <unix seconds>}` — the endpoint confirmed in Infomaniak's desktop-kDrive client. The `SetModifiedAt` method on `FilesService` mirrors the `Rename` adapter; the `SetMtime` use case invalidates the parent listing on success. `FileNode.Setattr` resolves the parent `DirNode`'s `folderID`, calls `SetMtime.Execute`, and patches `f.info.LastModifiedAt`. On a `ReadOnly` mount, an mtime `Setattr` returns `EROFS`. `touch file` now works as expected.
+
 ---
 
 ## UX
@@ -69,9 +72,6 @@ Uploads currently use `conflict=error` (fails on duplicate). Alternatives: `conf
 ---
 
 ## Hygiene
-
-### Setattr `utimens` → `last_modified_at`
-`Setattr` currently accepts timestamps but does not persist them. Mapping `in.Atime` / `in.Mtime` to a remote update would make `touch` behave as expected. Requires a `PUT /files/{id}` (or equivalent) call on the API side.
 
 ### xattrs for kDrive metadata
 Implement `NodeGetxattrer` + `NodeListxattrer`:

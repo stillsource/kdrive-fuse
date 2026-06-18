@@ -43,10 +43,15 @@ func (f *FileNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut
 	return 0
 }
 
-// Setattr accepts size/time updates as no-ops so truncate-on-open succeeds.
-func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+// Setattr accepts size/time updates. Truncate updates the working file if one
+// is open. Mtime changes are persisted to the remote via SetModifiedAt so that
+// touch(1) works as expected.
+func (f *FileNode) Setattr(ctx context.Context, _ fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
 	if f.kdfs.ReadOnly {
 		if _, ok := in.GetSize(); ok {
+			return syscall.EROFS
+		}
+		if _, ok := in.GetMTime(); ok {
 			return syscall.EROFS
 		}
 	}
@@ -61,6 +66,29 @@ func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrI
 		if wh != nil {
 			wh.truncateTo(int64(size))
 		}
+	}
+	if mt, ok := in.GetMTime(); ok {
+		_, parent := f.EmbeddedInode().Parent()
+		if parent == nil {
+			slog.Error("setattr mtime: no parent", "name", f.info.Name)
+			return syscall.EIO
+		}
+		pDir, ok := parent.Operations().(*DirNode)
+		if !ok {
+			slog.Error("setattr mtime: parent not DirNode", "name", f.info.Name)
+			return syscall.EIO
+		}
+		info, err := f.kdfs.SetMtime.Execute(ctx, f.info.ID, mt.Unix(), pDir.folderID)
+		if err != nil {
+			slog.Error("setattr mtime: SetModifiedAt failed",
+				"name", f.info.Name,
+				"id", f.info.ID,
+				"mtime", mt.Unix(),
+				"err", err,
+			)
+			return syscall.EIO
+		}
+		f.info.LastModifiedAt = info.LastModifiedAt
 	}
 	out.Mode = 0o644 | syscall.S_IFREG
 	out.Size = uint64(f.info.Size)
