@@ -5,6 +5,7 @@ coverage.html
 *.tmp
 .env
 .env.*
+!.env.example
 *.swp
 .DS_Store
 dist/
