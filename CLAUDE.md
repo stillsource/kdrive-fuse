@@ -109,7 +109,10 @@ pkg/presentation/fuse/          FUSE presentation layer — kernel-driven node/h
 ├── fs.go                       KDriveFS (holds the use cases + uid/gid) + NewKDriveFS (FUSE composition root)
 │                               + NewRootDirNode constructor
 ├── dir.go                      DirNode — Lookup / Readdir / Getattr / Create / Mkdir / Unlink / Rmdir / Rename
-└── file.go                     FileNode + readHandle (disk-cached) + writeHandle (tempfile + commit-on-close)
+├── file.go                     FileNode + readHandle (disk-cached) + writeHandle (tempfile + commit-on-close)
+│                               FileNode also implements fs.NodeGetxattrer + fs.NodeListxattrer, exposing
+│                               user.kdrive.{id,created_at,mime_type} as read-only extended attributes.
+└── xattr.go                    Pure helpers: kdriveXattrs / getXattrValue / listXattrNames
 pkg/presentation/cli/           CLI presentation layer — subcommand dispatcher + sync + share commands
 ├── root.go                     Run(args, version, stdout, stderr) — dispatches --help/--version/sync/share
 ├── sync.go                     runSync — flag parsing + PushOptions/PullOptions → syncer.Push / syncer.Pull

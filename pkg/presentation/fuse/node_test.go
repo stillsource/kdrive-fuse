@@ -490,6 +490,129 @@ var _ = Describe("Read-only mount", func() {
 	})
 })
 
+var _ = Describe("FileNode xattr via FUSE mount", func() {
+	It("syscall.Getxattr returns user.kdrive.id for a mounted file", func() {
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{
+				1: {Files: []domain.FileInfo{
+					{ID: 42, Name: "meta.txt", Type: domain.FileTypeFile, Size: 3,
+						CreatedAt: 1700000000, MimeType: "text/plain"},
+				}},
+			},
+			DownloadStreamResults: map[int64]servicefakes.DownloadStreamResult{
+				42: {Data: []byte("hi!")},
+			},
+		}
+		fx := newMountFixture(fake)
+		path := filepath.Join(fx.Dir, "meta.txt")
+
+		// Force a lookup so the node is populated.
+		_, err := os.Stat(path)
+		Expect(err).NotTo(HaveOccurred())
+
+		// size probe
+		sz, errno := syscall.Getxattr(path, "user.kdrive.id", nil)
+		Expect(errno).To(BeZero())
+		Expect(sz).To(BeNumerically(">", 0))
+
+		// value read
+		buf := make([]byte, sz)
+		n, errno := syscall.Getxattr(path, "user.kdrive.id", buf)
+		Expect(errno).To(BeZero())
+		Expect(string(buf[:n])).To(Equal("42"))
+	})
+
+	It("syscall.Getxattr returns user.kdrive.created_at for a mounted file", func() {
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{
+				1: {Files: []domain.FileInfo{
+					{ID: 10, Name: "hello.txt", Type: domain.FileTypeFile, Size: 11,
+						CreatedAt: 1700000000, LastModifiedAt: 100},
+				}},
+			},
+			DownloadStreamResults: map[int64]servicefakes.DownloadStreamResult{
+				10: {Data: []byte("hello world")},
+			},
+		}
+		fx := newMountFixture(fake)
+		path := filepath.Join(fx.Dir, "hello.txt")
+
+		_, err := os.Stat(path)
+		Expect(err).NotTo(HaveOccurred())
+
+		buf := make([]byte, 64)
+		n, errno := syscall.Getxattr(path, "user.kdrive.created_at", buf)
+		Expect(errno).To(BeZero())
+		Expect(string(buf[:n])).To(Equal("1700000000"))
+	})
+
+	It("syscall.Getxattr returns user.kdrive.mime_type when set", func() {
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{
+				1: {Files: []domain.FileInfo{
+					{ID: 10, Name: "hello.txt", Type: domain.FileTypeFile, Size: 11,
+						MimeType: "text/plain"},
+				}},
+			},
+			DownloadStreamResults: map[int64]servicefakes.DownloadStreamResult{
+				10: {Data: []byte("hello world")},
+			},
+		}
+		fx := newMountFixture(fake)
+		path := filepath.Join(fx.Dir, "hello.txt")
+
+		_, err := os.Stat(path)
+		Expect(err).NotTo(HaveOccurred())
+
+		buf := make([]byte, 64)
+		n, errno := syscall.Getxattr(path, "user.kdrive.mime_type", buf)
+		Expect(errno).To(BeZero())
+		Expect(string(buf[:n])).To(Equal("text/plain"))
+	})
+
+	It("syscall.Getxattr returns ENODATA for unknown attribute", func() {
+		fx := newMountFixture(baseFake())
+		path := filepath.Join(fx.Dir, "hello.txt")
+
+		_, err := os.Stat(path)
+		Expect(err).NotTo(HaveOccurred())
+
+		_, errno := syscall.Getxattr(path, "user.kdrive.share_url", nil)
+		Expect(errno).To(Equal(syscall.ENODATA))
+	})
+
+	It("syscall.Listxattr returns NUL-separated names including user.kdrive.id", func() {
+		fake := &servicefakes.FilesFake{
+			ListResults: map[int64]servicefakes.ListResult{
+				1: {Files: []domain.FileInfo{
+					{ID: 10, Name: "hello.txt", Type: domain.FileTypeFile, Size: 11,
+						MimeType: "text/plain"},
+				}},
+			},
+			DownloadStreamResults: map[int64]servicefakes.DownloadStreamResult{
+				10: {Data: []byte("hello world")},
+			},
+		}
+		fx := newMountFixture(fake)
+		path := filepath.Join(fx.Dir, "hello.txt")
+
+		_, err := os.Stat(path)
+		Expect(err).NotTo(HaveOccurred())
+
+		sz, errno := syscall.Listxattr(path, nil)
+		Expect(errno).To(BeZero())
+		Expect(sz).To(BeNumerically(">", 0))
+
+		buf := make([]byte, sz)
+		n, errno := syscall.Listxattr(path, buf)
+		Expect(errno).To(BeZero())
+		names := string(buf[:n])
+		Expect(names).To(ContainSubstring("user.kdrive.id"))
+		Expect(names).To(ContainSubstring("user.kdrive.created_at"))
+		Expect(names).To(ContainSubstring("user.kdrive.mime_type"))
+	})
+})
+
 // drainRC drains a ReadCloser fully — helper for stream tests.
 var _ = drainRC
 

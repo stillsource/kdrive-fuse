@@ -62,6 +62,14 @@ Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infras
 ### `kdrive share REMOTE_PATH` CLI
 `kdrive share` resolves a remote path to its file ID (read-only listing, never creates directories), calls `usecase.ShareFile` which wraps `client.Shares.Publish`, and prints the public URL to stdout. Useful for scripts. Wired in `pkg/presentation/cli/share.go`.
 
+### xattrs for kDrive metadata
+`FileNode` exposes read-only extended attributes via `fs.NodeGetxattrer` + `fs.NodeListxattrer`:
+- `user.kdrive.id` — numeric file ID
+- `user.kdrive.created_at` — creation timestamp (Unix seconds)
+- `user.kdrive.mime_type` — MIME type (only when non-empty)
+
+`getfattr -d <file>` is now a useful scripting primitive. Pure helpers live in `pkg/presentation/fuse/xattr.go`; the interfaces are wired on `FileNode` only (`DirNode` has only a folder ID, not full metadata). Two attributes were intentionally omitted: `user.kdrive.share_url` (generating a public link as a side-effect of reading an xattr would publish every file on `getfattr -d` — a footgun; use `kdrive share` instead) and `user.kdrive.created_by` (not present in `domain.FileInfo`).
+
 ---
 
 ## UX
@@ -73,15 +81,6 @@ Expose the kDrive trash as `~/kDrive-vfs/.trash/` via `GET /files/trash`. `rm .t
 ---
 
 ## Hygiene
-
-### xattrs for kDrive metadata
-Implement `NodeGetxattrer` + `NodeListxattrer`:
-- `user.kdrive.id` → numeric ID
-- `user.kdrive.mime_type`
-- `user.kdrive.created_by`
-- `user.kdrive.share_url` (lazy — generate via `Shares.Publish` on first read)
-
-Makes `getfattr -d` a useful primitive for scripts.
 
 ### `--readonly` flag
 Env `KDRIVE_READONLY=1` disables Create / Mkdir / Unlink / Rmdir / Rename — they return EROFS. Safe for mounting a shared or audited drive.
