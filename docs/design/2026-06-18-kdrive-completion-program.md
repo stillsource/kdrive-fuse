@@ -10,9 +10,9 @@ binary and its sync command (push, pull, `--verify`, `--refresh`, deletion +
 drift guards, Ctrl-C cancellation, ~91 % coverage) sit on `main` across 19
 unreleased commits (#10–#19, +12.7k/−0.9k LOC). The tree is clean and there are
 no open issues, but **none of the sync work is in any release**. Step 0 of this
-program is therefore to cut **`v0.3.0`** (a minor — a burst of new `feat:`,
-pre-1.0) from current `main`, giving a clean released baseline before the
-completion work begins.
+program was to cut **`v0.3.0`** (a minor — a burst of new `feat:`, pre-1.0) from
+`main`; it is now published and `Latest`, giving a clean released baseline before
+the completion work begins.
 
 This document plans the remaining work to take the project from "works for the
 primary photo-archive case" to "complete": close the known data-safety gaps in
@@ -82,6 +82,11 @@ already-present file fails with `conflict=error` (409).
    `conflict=error` because a prior interrupted run already created it, reconcile:
    resolve the file id under its parent and fall back to overwrite-by-id, then
    record the entry. Closes the 409 footgun left by the bounded batch loss.
+
+Also add a one-line **format-version header** to the TSV so future manifest
+changes can migrate the file rather than break it — keeping such changes a minor,
+not a major (the manifest format is part of this application's compatibility
+surface).
 
 A full WAL/journal was considered and rejected (YAGNI for a single-user tool;
 batched checkpoint + idempotency gives crash-safety without the complexity).
@@ -190,9 +195,14 @@ M → N → O. Track 1 lands first because it protects data that already lives i
 kDrive today. Docs (`README`/`ROADMAP`/`CLAUDE`) and the Obsidian vault are
 updated as features land (and a final pass at the end).
 
-Releases: **`v0.3.0` now** (Step 0 — the unreleased sync suite); `v0.4.0` after
-Track 1 (data-safety hardening); `v0.5.0` after Track 2 (FUSE roadmap); `1.0.0`
-as the capstone once Track 3 lands and the CLI/API surface is considered stable.
+Releases: `v0.3.0` shipped the sync suite (Step 0, done). **No intermediate
+releases during the program** — a single release is cut at the end, and its number
+is decided then: `1.0.0` if we are ready to commit to a stable surface, otherwise
+a `0.x` minor. SemVer for this application keys off the *user-facing* surface (CLI
+flags/commands, `KDRIVE_*` env, the manifest format, machine-readable output and
+exit codes), not Go API symbols — the completion work is almost entirely additive
+(new opt-in flags/commands), hence minors, with format/default changes kept
+backward-compatible to avoid a forced major.
 
 ## Testing
 
