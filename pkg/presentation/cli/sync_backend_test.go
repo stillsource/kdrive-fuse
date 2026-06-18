@@ -172,6 +172,28 @@ var _ = Describe("runSync with a fake backend", func() {
 	})
 })
 
+var _ = Describe("parseSyncFlags", func() {
+	errb := &bytes.Buffer{}
+
+	It("accepts --delete-threshold 0.5 and parses the value", func() {
+		opts, err := parseSyncFlags([]string{"--delete-threshold", "0.5"}, errb)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.deleteThreshold).To(Equal(0.5))
+	})
+
+	It("rejects --delete-threshold 0 with an error", func() {
+		_, err := parseSyncFlags([]string{"--delete-threshold", "0"}, errb)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("delete-threshold"))
+	})
+
+	It("rejects --delete-threshold 1.5 with an error", func() {
+		_, err := parseSyncFlags([]string{"--delete-threshold", "1.5"}, errb)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("delete-threshold"))
+	})
+})
+
 var _ = Describe("expandHome", func() {
 	It("returns a path unchanged when it has no leading tilde", func() {
 		p, err := expandHome("/abs/path")

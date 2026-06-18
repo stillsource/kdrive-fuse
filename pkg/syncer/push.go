@@ -21,13 +21,14 @@ type FilesPort interface {
 
 // PushOptions configures a push run.
 type PushOptions struct {
-	LocalRoot string
-	Jobs      int
-	Force     bool
-	DryRun    bool
-	NoDelete  bool
-	AssumeNew bool
-	Refresh   bool // re-bootstrap the manifest from a fresh remote index
+	LocalRoot       string
+	Jobs            int
+	Force           bool
+	DryRun          bool
+	NoDelete        bool
+	AssumeNew       bool
+	Refresh         bool    // re-bootstrap the manifest from a fresh remote index
+	DeleteThreshold float64 // fraction of baseline; default 0.20 when zero
 }
 
 // Push mirrors opts.LocalRoot onto the remote folder rootID, using the manifest
@@ -56,7 +57,7 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 	if opts.NoDelete {
 		items = dropDeletes(items)
 	}
-	if err := GuardDeletes(items, m.Len(), opts.Force); err != nil {
+	if err := GuardDeletes(items, m.Len(), opts.DeleteThreshold, opts.Force); err != nil {
 		return Result{}, err
 	}
 	if opts.DryRun {
