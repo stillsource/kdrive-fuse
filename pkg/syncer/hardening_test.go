@@ -139,7 +139,7 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 			{Rel: "a", Op: syncer.OpUpload, Size: 1},
 			{Rel: "b", Op: syncer.OpUpload, Size: 1},
 		}
-		res := syncer.RunPush(ctx, items, ex, m, 2)
+		res := syncer.RunPush(ctx, items, ex, m, 2, nil)
 		Expect(res.Failed).To(Equal(2))
 		Expect(res.Uploaded).To(Equal(0))
 		Expect(ex.uploads).To(BeEmpty())
@@ -161,7 +161,7 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 	It("RunPush clamps jobs<1 to 1 and still processes items (L1)", func() {
 		m := manifest.New()
 		ex := &fakeExec{fail: map[string]bool{}}
-		res := syncer.RunPush(context.Background(), []syncer.Item{{Rel: "a", Op: syncer.OpUpload, Size: 1}}, ex, m, 0)
+		res := syncer.RunPush(context.Background(), []syncer.Item{{Rel: "a", Op: syncer.OpUpload, Size: 1}}, ex, m, 0, nil)
 		Expect(res.Uploaded).To(Equal(1))
 	})
 

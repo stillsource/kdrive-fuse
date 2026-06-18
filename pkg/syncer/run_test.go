@@ -65,7 +65,7 @@ var _ = Describe("RunPush", func() {
 			{Rel: "gone.jpg", Op: syncer.OpDelete, RemoteID: 70},
 		}
 		ex := &fakeExec{fail: map[string]bool{}}
-		res := syncer.RunPush(context.Background(), items, ex, m, 4)
+		res := syncer.RunPush(context.Background(), items, ex, m, 4, nil)
 
 		Expect(res.Uploaded).To(Equal(1))
 		Expect(res.Overwritten).To(Equal(1))
@@ -89,7 +89,7 @@ var _ = Describe("RunPush", func() {
 			{Rel: "edit.jpg", Op: syncer.OpOverwrite, RemoteID: 80, Size: 6, Mtime: 101},
 		}
 		ex := &fakeExec{fail: map[string]bool{"new.jpg": true, "edit.jpg": true}}
-		res := syncer.RunPush(context.Background(), items, ex, m, 2)
+		res := syncer.RunPush(context.Background(), items, ex, m, 2, nil)
 
 		Expect(res.Failed).To(Equal(2))
 		Expect(res.Errs).To(HaveLen(2))
@@ -101,7 +101,7 @@ var _ = Describe("RunPush", func() {
 
 	It("handles an empty plan", func() {
 		m := manifest.New()
-		res := syncer.RunPush(context.Background(), nil, &fakeExec{fail: map[string]bool{}}, m, 4)
+		res := syncer.RunPush(context.Background(), nil, &fakeExec{fail: map[string]bool{}}, m, 4, nil)
 		Expect(res).To(Equal(syncer.Result{}))
 	})
 
@@ -112,9 +112,24 @@ var _ = Describe("RunPush", func() {
 			items = append(items, syncer.Item{Rel: relName(i), Op: syncer.OpUpload, Size: 1, Mtime: 1})
 		}
 		ex := &fakeExec{fail: map[string]bool{}}
-		res := syncer.RunPush(context.Background(), items, ex, m, 8)
+		res := syncer.RunPush(context.Background(), items, ex, m, 8, nil)
 		Expect(res.Uploaded).To(Equal(200))
 		Expect(m.Len()).To(Equal(200))
+	})
+
+	It("checkpoints the manifest every 64 successful ops", func() {
+		m := manifest.New()
+		var items []syncer.Item
+		for i := 0; i < 130; i++ {
+			items = append(items, syncer.Item{Rel: relName(i), Op: syncer.OpUpload, Size: 1, Mtime: 1})
+		}
+		var lens []int // manifest length captured at each checkpoint
+		res := syncer.RunPush(context.Background(), items, &fakeExec{fail: map[string]bool{}}, m, 8, func() {
+			lens = append(lens, m.Len())
+		})
+		Expect(res.Uploaded).To(Equal(130))
+		// 130 successes, checkpointInterval = 64 -> fires after the 64th and 128th.
+		Expect(lens).To(Equal([]int{64, 128}))
 	})
 })
 

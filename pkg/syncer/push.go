@@ -65,7 +65,7 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 	}
 	resolver := remoteindex.NewResolver(files, files, rootID)
 	exec := NewPushExecutor(opts.LocalRoot, resolver, files, files)
-	res := RunPush(ctx, items, exec, m, opts.Jobs)
+	res := RunPush(ctx, items, exec, m, opts.Jobs, func() { _ = m.Save(manifestPath) })
 	if err := m.Save(manifestPath); err != nil {
 		return res, fmt.Errorf("save manifest: %w", err)
 	}
