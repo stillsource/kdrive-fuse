@@ -6,11 +6,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/manifest"
 	"github.com/stillsource/kdrive-fuse/pkg/syncer"
 )
 
@@ -237,5 +239,65 @@ var _ = Describe("Push", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(res.Overwritten).To(Equal(1)) // only b
 		Expect(out.String()).To(ContainSubstring("skip (remote changed): a.jpg"))
+	})
+
+	It("relocates a renamed file as a server-side move (no re-upload)", func() {
+		writeLocal("a.jpg", "hello")
+		// pin a deterministic mtime so the moved file matches the manifest baseline
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		// rename locally (preserves size + mtime)
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "b.jpg"))).To(Succeed())
+		files.uploads = nil
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Moved).To(Equal(1))
+		Expect(res.Uploaded).To(Equal(0))
+		Expect(res.Deleted).To(Equal(0))
+		Expect(files.uploads).To(BeEmpty())  // not re-uploaded
+		Expect(files.renamed).To(HaveLen(1)) // same folder -> rename only
+
+		// Verify manifest re-key: old path gone, new path present with same RemoteID.
+		mm, err := manifest.Load(mpath)
+		Expect(err).NotTo(HaveOccurred())
+		_, oldPresent := mm.Get("a.jpg")
+		Expect(oldPresent).To(BeFalse())
+		e, newPresent := mm.Get("b.jpg")
+		Expect(newPresent).To(BeTrue())
+		Expect(e.RemoteID).NotTo(BeZero())
+	})
+
+	It("moves a file across folders", func() {
+		writeLocal("a.jpg", "hello")
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.MkdirAll(filepath.Join(root, "sub"), 0o755)).To(Succeed())
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "sub", "a.jpg"))).To(Succeed())
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Moved).To(Equal(1))
+		Expect(files.moved).To(HaveLen(1)) // different folder -> Move called
+	})
+
+	It("falls back to delete+upload when two files share size and mtime (ambiguous)", func() {
+		writeLocal("a.jpg", "xxx")
+		writeLocal("c.jpg", "yyy") // same size (3)
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		Expect(os.Chtimes(filepath.Join(root, "c.jpg"), ts, ts)).To(Succeed()) // same mtime
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "a2.jpg"))).To(Succeed())
+		Expect(os.Rename(filepath.Join(root, "c.jpg"), filepath.Join(root, "c2.jpg"))).To(Succeed())
+		o := opts()
+		o.Force = true // override delete guard: 2/2 = 100% deletion without force
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Moved).To(Equal(0)) // ambiguous -> no move
+		Expect(res.Uploaded + res.Deleted).To(BeNumerically(">", 0))
 	})
 })

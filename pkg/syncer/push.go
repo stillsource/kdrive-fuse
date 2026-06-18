@@ -26,6 +26,7 @@ type FilesPort interface {
 	service.FileWriter
 	fileDeleter
 	fileStater
+	fileMover
 }
 
 // PushOptions configures a push run.
@@ -63,6 +64,7 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 		Bootstrap(m, idx, local)
 	}
 	items := PlanPush(local, m)
+	items = DetectMoves(items, m)
 	if opts.NoDelete {
 		items = dropDeletes(items)
 	}
@@ -80,7 +82,7 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 		return Result{}, nil
 	}
 	resolver := remoteindex.NewResolver(files, files, rootID)
-	exec := NewPushExecutor(opts.LocalRoot, resolver, files, files, files)
+	exec := NewPushExecutor(opts.LocalRoot, resolver, files, files, files, files)
 	res := RunPush(ctx, items, exec, m, opts.Jobs, func() { _ = m.Save(manifestPath) })
 	if err := m.Save(manifestPath); err != nil {
 		return res, fmt.Errorf("save manifest: %w", err)
@@ -97,6 +99,8 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 func filterPushDrift(ctx context.Context, items []Item, m *manifest.Manifest, st fileStater, out io.Writer) ([]Item, error) {
 	kept := make([]Item, 0, len(items))
 	for _, it := range items {
+		// Uploads and moves pass through without drift-checking:
+		// uploads are new and moves do not change content.
 		if it.Op != OpOverwrite && it.Op != OpDelete {
 			kept = append(kept, it)
 			continue
@@ -138,18 +142,20 @@ func dropDeletes(items []Item) []Item {
 }
 
 func printPlan(out io.Writer, items []Item) {
-	var up, ov, del int
+	var up, ov, mv, del int
 	for _, it := range items {
 		switch it.Op {
 		case OpUpload:
 			up++
 		case OpOverwrite:
 			ov++
+		case OpMove:
+			mv++
 		case OpDelete:
 			del++
 		}
 	}
-	_, _ = fmt.Fprintf(out, "dry-run: %d to upload, %d to overwrite, %d to delete\n", up, ov, del)
+	_, _ = fmt.Fprintf(out, "dry-run: %d to upload, %d to overwrite, %d to move, %d to delete\n", up, ov, mv, del)
 	for _, it := range items {
 		_, _ = fmt.Fprintf(out, "  %-9s %s\n", opName(it.Op), it.Rel)
 	}
@@ -161,6 +167,8 @@ func opName(op Op) string {
 		return "upload"
 	case OpOverwrite:
 		return "overwrite"
+	case OpMove:
+		return "move"
 	case OpDelete:
 		return "delete"
 	default:

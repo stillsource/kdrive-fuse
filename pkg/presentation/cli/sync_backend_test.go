@@ -46,6 +46,12 @@ func (f *fakeSyncFiles) Upload(_ context.Context, in service.UploadInput) (domai
 
 func (f *fakeSyncFiles) Delete(context.Context, int64) error { return nil }
 
+func (f *fakeSyncFiles) Move(_ context.Context, fileID, destDirID int64) error { return nil }
+
+func (f *fakeSyncFiles) Rename(_ context.Context, fileID int64, newName string) (domain.FileInfo, error) {
+	return domain.FileInfo{ID: fileID, Name: newName}, nil
+}
+
 func (f *fakeSyncFiles) Stat(_ context.Context, fileID int64) (domain.FileInfo, error) {
 	for _, children := range f.listing {
 		for _, info := range children {

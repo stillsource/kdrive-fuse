@@ -20,6 +20,9 @@ type Executor interface {
 	Overwrite(ctx context.Context, rel string, remoteID, size int64) (remoteMtime int64, err error)
 	// Delete removes the remote file remoteID.
 	Delete(ctx context.Context, rel string, remoteID int64) error
+	// Move relocates remote file remoteID from fromRel to toRel (a different
+	// folder and/or a new name). The content is unchanged.
+	Move(ctx context.Context, fromRel, toRel string, remoteID int64) error
 }
 
 // Result summarizes a push run.
@@ -27,6 +30,7 @@ type Result struct {
 	Uploaded    int
 	Overwritten int
 	Deleted     int
+	Moved       int
 	Failed      int
 	Errs        []error
 }
@@ -74,6 +78,8 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 					o.remoteMtime, o.err = ex.Overwrite(ctx, it.Rel, it.RemoteID, it.Size)
 				case OpDelete:
 					o.err = ex.Delete(ctx, it.Rel, it.RemoteID)
+				case OpMove:
+					o.err = ex.Move(ctx, it.SrcRel, it.Rel, it.RemoteID)
 				}
 				out <- o
 			}
@@ -126,6 +132,16 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 		case OpDelete:
 			m.Delete(o.item.Rel)
 			res.Deleted++
+			maybeCheckpoint()
+		case OpMove:
+			m.Delete(o.item.SrcRel)
+			m.Set(o.item.Rel, manifest.Entry{
+				Size:        o.item.Size,
+				LocalMtime:  o.item.Mtime,
+				RemoteID:    o.item.RemoteID,
+				RemoteMtime: o.item.RemoteMtime,
+			})
+			res.Moved++
 			maybeCheckpoint()
 		}
 	}

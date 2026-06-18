@@ -54,6 +54,10 @@ func (f *fakeExec) Delete(_ context.Context, rel string, remoteID int64) error {
 	return nil
 }
 
+func (f *fakeExec) Move(_ context.Context, fromRel, toRel string, remoteID int64) error {
+	return nil
+}
+
 var _ = Describe("RunPush", func() {
 	It("executes each op and updates the manifest", func() {
 		m := manifest.New()

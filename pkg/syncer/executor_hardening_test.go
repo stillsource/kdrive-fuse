@@ -30,7 +30,7 @@ var _ = Describe("executor error paths", func() {
 		root := GinkgoT().TempDir()
 		files := &recordingFiles{folders: map[int64][]domain.FileInfo{}, failUpload: map[string]bool{}}
 		resolver := remoteindex.NewResolver(files, files, 1)
-		ex := syncer.NewPushExecutor(root, resolver, files, files, files)
+		ex := syncer.NewPushExecutor(root, resolver, files, files, files, files)
 		_, err := ex.Overwrite(context.Background(), "missing.jpg", 7, 3)
 		Expect(err).To(HaveOccurred())
 	})

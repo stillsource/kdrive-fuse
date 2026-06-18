@@ -158,8 +158,8 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if !opts.dryRun {
-		_, _ = fmt.Fprintf(stdout, "synced: %d uploaded, %d overwritten, %d deleted, %d failed\n",
-			res.Uploaded, res.Overwritten, res.Deleted, res.Failed)
+		_, _ = fmt.Fprintf(stdout, "synced: %d uploaded, %d overwritten, %d moved, %d deleted, %d failed\n",
+			res.Uploaded, res.Overwritten, res.Moved, res.Deleted, res.Failed)
 		if opts.verify {
 			runVerify(ctx, local, files, rootID, stdout, stderr)
 		}
