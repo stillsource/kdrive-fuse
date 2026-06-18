@@ -30,10 +30,11 @@ Usage:
       REMOTE  remote path under the drive root (default: ` + defaultRemoteRoot + `)
 
 By default sync pushes (local -> remote). With --pull it mirrors the other way
-(remote -> local).
+(remote -> local). With --two-way it reconciles both directions in one pass.
 
 Flags:
   --pull        mirror remote -> local instead of local -> remote
+  --two-way     reconcile both directions in one pass; conflicts (both sides changed) are reported and skipped
   --dry-run     classify and print the plan; change nothing
   --no-delete   never delete on the destination
   --force       override the deletion guard, the push remote-drift guard, and (on pull) the local-drift guard
@@ -48,10 +49,22 @@ Flags:
 
 // syncOptions is the parsed command line for "kdrive sync".
 type syncOptions struct {
-	local, remote                                                          string
-	pull, dryRun, noDelete, force, assumeNew, verify, refresh, detectMoves bool
-	jobs                                                                   int
-	deleteThreshold                                                        float64
+	local, remote                                                                  string
+	pull, dryRun, noDelete, force, assumeNew, verify, refresh, detectMoves, twoWay bool
+	jobs                                                                           int
+	deleteThreshold                                                                float64
+}
+
+// SyncOptionsView is a read-only view of syncOptions for black-box tests.
+type SyncOptionsView struct {
+	TwoWay bool
+	Pull   bool
+}
+
+// ParseSyncFlags is the exported test-accessible wrapper for parseSyncFlags.
+func ParseSyncFlags(args []string, stderr io.Writer) (SyncOptionsView, error) {
+	o, err := parseSyncFlags(args, stderr)
+	return SyncOptionsView{TwoWay: o.twoWay, Pull: o.pull}, err
 }
 
 // parseSyncFlags parses the arguments after "sync". It returns flag.ErrHelp when
@@ -69,6 +82,7 @@ func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	fs.BoolVar(&o.verify, "verify", false, "")
 	fs.BoolVar(&o.refresh, "refresh", false, "")
 	fs.BoolVar(&o.detectMoves, "detect-moves", false, "")
+	fs.BoolVar(&o.twoWay, "two-way", false, "")
 	fs.IntVar(&o.jobs, "jobs", 8, "")
 	fs.Float64Var(&o.deleteThreshold, "delete-threshold", 0.20, "")
 	if err := fs.Parse(args); err != nil {
@@ -76,6 +90,9 @@ func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	}
 	if o.deleteThreshold <= 0 || o.deleteThreshold > 1 {
 		return o, fmt.Errorf("delete-threshold must be in (0, 1], got %g", o.deleteThreshold)
+	}
+	if o.twoWay && o.pull {
+		return o, fmt.Errorf("--two-way and --pull are mutually exclusive")
 	}
 	rest := fs.Args()
 	if len(rest) > 2 {
@@ -117,6 +134,31 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
 		return 1
+	}
+
+	if opts.twoWay {
+		res, err := syncer.TwoWay(ctx, syncer.TwoWayOptions{
+			LocalRoot:       local,
+			Jobs:            opts.jobs,
+			Force:           opts.force,
+			DryRun:          opts.dryRun,
+			DeleteThreshold: opts.deleteThreshold,
+		}, files, rootID, mpath, stdout)
+		if err != nil {
+			_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
+			return 1
+		}
+		if !opts.dryRun {
+			_, _ = fmt.Fprintf(stdout, "two-way: %d pushed, %d pulled, %d conflicts, %d failed\n",
+				res.Pushed, res.Pulled, res.Conflicts, res.Failed)
+			if opts.verify {
+				runVerify(ctx, local, files, rootID, stdout, stderr)
+			}
+		}
+		if res.Failed > 0 {
+			return 1
+		}
+		return 0
 	}
 
 	if opts.pull {
