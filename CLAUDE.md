@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 A self-contained Go **application** with two binaries:
 
 - `cmd/kdrive-fuse` — mounts an Infomaniak kDrive remote as a FUSE filesystem, backed by a disk cache.
-- `cmd/kdrive` — a command-line companion for operations that don't require a mount (currently: `kdrive sync`).
+- `cmd/kdrive` — a command-line companion for operations that don't require a mount (currently: `kdrive sync`, `kdrive share`).
 
 The kDrive REST API v2 client lives **inside** the application as an internal infrastructure adapter (`pkg/infrastructure/kdriveapi`). It is not a public, importable library — there is no `github.com/stillsource/kdrive-fuse/kdrive` package to depend on. The module is layered under `pkg/` following clean architecture: every other layer depends inward on `pkg/domain`.
 
@@ -64,7 +64,7 @@ pkg/usecase/                    application logic — one type per operation, wi
 ├── seed_content.go             SeedContent (lazy pull of remote content for edits)
 ├── commit_write.go             CommitWrite (upload + parent-cache invalidate)
 ├── delete_entry.go             DeleteEntry, rename_entry.go RenameEntry, make_dir.go MakeDir
-└── share_file.go               ShareFile (defined; not yet wired into the FUSE tree — see kdshare in ROADMAP)
+└── share_file.go               ShareFile (wired into `kdrive share` CLI subcommand)
 pkg/appconfig/                  shared KDRIVE_* env loader used by both binaries
 └── appconfig.go                Config + Load; Config.DI(logger) produces a di.Config
 pkg/infrastructure/             the adapters — concrete implementations of the service ports
@@ -110,9 +110,10 @@ pkg/presentation/fuse/          FUSE presentation layer — kernel-driven node/h
 │                               + NewRootDirNode constructor
 ├── dir.go                      DirNode — Lookup / Readdir / Getattr / Create / Mkdir / Unlink / Rmdir / Rename
 └── file.go                     FileNode + readHandle (disk-cached) + writeHandle (tempfile + commit-on-close)
-pkg/presentation/cli/           CLI presentation layer — subcommand dispatcher + sync command
-├── root.go                     Run(args, version, stdout, stderr) — dispatches --help/--version/sync
-└── sync.go                     runSync — flag parsing + PushOptions/PullOptions → syncer.Push / syncer.Pull
+pkg/presentation/cli/           CLI presentation layer — subcommand dispatcher + sync + share commands
+├── root.go                     Run(args, version, stdout, stderr) — dispatches --help/--version/sync/share
+├── sync.go                     runSync — flag parsing + PushOptions/PullOptions → syncer.Push / syncer.Pull
+└── share.go                    runShare — resolve REMOTE_PATH read-only via remoteindex.Lister, publish via usecase.ShareFile, print ShareURL
 cmd/kdrive-fuse/                FUSE daemon entry point
 ├── main.go                     --version + signal handling; loads appconfig + config.LoadFUSE → di.NewContainer → fs.Mount
 └── config/env.go               mount-only config: FUSE{Mount} loaded from KDRIVE_MOUNT
@@ -132,9 +133,11 @@ cmd/kdrive/                     CLI binary entry point
 
 The DI container builds the graph once at boot, so every flow below runs through the use cases the FUSE nodes hold (`KDriveFS.ListDir`, `.ReadFile`, `.SeedContent`, `.CommitWrite`, `.DeleteEntry`, `.RenameEntry`, `.MakeDir`), which in turn call the `pkg/service` ports satisfied by the `kdriveapi` / `listingcache` / `contentcache` adapters.
 
-### kdrive CLI / sync
+### kdrive CLI / sync / share
 
-`cmd/kdrive` is a command-line companion to the FUSE daemon. `pkg/presentation/cli.Run` dispatches subcommands; currently only `sync` exists.
+`cmd/kdrive` is a command-line companion to the FUSE daemon. `pkg/presentation/cli.Run` dispatches subcommands: `sync` and `share`.
+
+**`kdrive share REMOTE_PATH`** resolves a path under the drive root to a file ID (read-only listing via `remoteindex.Lister` — never creates directories), calls `usecase.NewShareFile(sharer).Execute(ctx, fileID)` which wraps `service.Sharer.Publish`, and prints `domain.ShareInfo.ShareURL` to stdout. The backend seam (`shareBackend` package var) mirrors the `syncBackend` pattern so tests can inject fakes. Intermediate segments must be directories; the final segment must be a non-directory file.
 
 **`kdrive sync [flags] [LOCAL] [REMOTE]`** mirrors a local directory tree and a kDrive folder (push by default; `--pull` for the reverse). It does not require a FUSE mount.
 

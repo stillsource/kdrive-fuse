@@ -65,7 +65,7 @@ Run it as a systemd user service to auto-mount at login — see the example unit
 
 ## CLI / sync
 
-The `kdrive` binary is a command-line companion to the FUSE daemon. It currently provides one subcommand:
+The `kdrive` binary is a command-line companion to the FUSE daemon. It provides the following subcommands:
 
 ```
 kdrive sync [flags] [LOCAL] [REMOTE]
@@ -107,6 +107,19 @@ kdrive sync --verify
 | `--refresh` | (push only) Re-bootstrap the manifest from a fresh remote index |
 | `--verify` | After the run, report local vs remote presence + size differences |
 | `--jobs N` | Concurrent transfers (default 8) |
+
+### share
+
+```
+kdrive share REMOTE_PATH
+```
+
+Prints the public share URL for a file under the drive root. `REMOTE_PATH` is a slash-separated path (e.g. `Photos/2024/cat.jpg`). The link is created via the `Shares.Publish` API if it does not exist yet, and printed to stdout — useful for scripts.
+
+```bash
+kdrive share "Photos/2024/cat.jpg"
+# https://kdrive.infomaniak.com/app/share/...
+```
 
 **Change detection — manifest baseline.** Push tracks state in a TSV manifest at `$XDG_STATE_HOME/kdrive/<hash>.tsv` (falling back to `~/.local/state/kdrive/`), keyed by a hash of the (local root, remote root) pair. Each entry records size, local mtime, remote file ID, and remote mtime from the last sync. On a steady-state push the planner compares local size + mtime against the manifest: a file is unchanged, an overwrite, a new upload, or a delete — no remote listing required, because the manifest carries remote IDs.
 

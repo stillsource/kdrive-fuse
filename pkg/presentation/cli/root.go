@@ -16,6 +16,7 @@ Usage:
 
 Commands:
   sync   mirror a local tree and its kDrive copy (push/pull)
+  share  print the public share URL for a file (kdrive share REMOTE_PATH)
 
 Run "kdrive <command> --help" for command-specific help.
 `
@@ -35,6 +36,8 @@ func Run(args []string, version string, stdout, stderr io.Writer) int {
 		return 0
 	case "sync":
 		return runSync(args[1:], stdout, stderr)
+	case "share":
+		return runShare(args[1:], stdout, stderr)
 	default:
 		_, _ = fmt.Fprintf(stderr, "kdrive: unknown command %q\n", args[0])
 		_, _ = fmt.Fprint(stderr, usage)
