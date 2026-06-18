@@ -78,6 +78,9 @@ Delivered as a `kdrive trash` CLI subcommand rather than a FUSE virtual `.trash/
 
 `getfattr -d <file>` is now a useful scripting primitive. Pure helpers live in `pkg/presentation/fuse/xattr.go`; the interfaces are wired on `FileNode` only (`DirNode` has only a folder ID, not full metadata). Two attributes were intentionally omitted: `user.kdrive.share_url` (generating a public link as a side-effect of reading an xattr would publish every file on `getfattr -d` — a footgun; use `kdrive share` instead) and `user.kdrive.created_by` (not present in `domain.FileInfo`).
 
+### Crash-safe Rename/Move (client-side idempotency)
+`--detect-moves` relocations are idempotent on a crash re-run without relying on unverified server semantics. `PushExecutor.Move` Stats the live remote state first and issues a `Move`/`Rename` only for the dimensions (parent, name) that still differ from the target. A re-run where the first run already relocated the file but crashed before the manifest was checkpointed performs zero mutating calls; a partial run (Move applied, Rename not) self-heals by issuing only the missing half. Because the decision comes from the live state rather than the manifest's stale source path, an out-of-band relocation since the last snapshot is corrected (driven to target) instead of acted on blindly. The name decision is exact (the API always returns the name); the parent decision uses `parent_id` when present and falls back to the manifest's source-vs-target intent when the response omits it (`0` never equals a valid folder id, so a blind compare would spuriously move). This completes the idempotency story alongside Upload (409 → overwrite-by-id) and Delete (already-gone → success).
+
 ---
 
 ## ✅ Shipped — operational flags & CLI extras
@@ -99,9 +102,6 @@ Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.searc
 
 ### Multi-drive mount — deferred (YAGNI for a single-drive setup)
 Mount multiple drives under `/mnt/kdrive/{drive_id}/` (one `KDriveFS` per drive; a top-level inode listing configured drives). Deferred: a large refactor of the single-drive assumption (`appconfig`, the di container, the mount root) for speculative value on a personal single-drive setup. Revisit if a second drive is ever added.
-
-### Document Rename/Move idempotency
-Upload and delete are idempotent on a crash re-run (a 409 reconciles to overwrite-by-id; an already-gone delete target is treated as success). Rename/Move idempotency (a second call returning 404 or success) is relied upon but not yet explicitly verified and documented — a minor hardening item.
 
 ### Full-text search as a virtual directory — superseded
 The original `~/kDrive-vfs/.search/{query}/` virtual-directory idea was delivered instead as the `kdrive search` CLI (above). Not planned as a vdir.

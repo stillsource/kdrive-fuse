@@ -138,27 +138,59 @@ func (e *PushExecutor) Delete(ctx context.Context, _ string, remoteID int64) err
 	return nil
 }
 
-// Move relocates remoteID from fromRel to toRel: Move to the destination folder
-// if the parent changed, then Rename if the base name changed. It returns the
-// authoritative remote mtime read via Stat after the relocation completes.
+// Move drives the remote file remoteID to its target location (parent folder of
+// toRel) and name (base of toRel), issuing a Move and/or Rename only for the
+// dimensions that still differ from the LIVE remote state. It returns the
+// authoritative remote mtime read via Stat.
 //
-// Partial-failure note: if Move succeeds but Rename fails, a retry will call
-// Move again; kDrive treats a move-to-current-parent as idempotent, so the
-// retry is safe.
+// It Stats the current state first and decides from it, which gives three
+// properties at once:
+//   - Crash re-run is a no-op. If the first run relocated the file but crashed
+//     before the manifest was checkpointed, the re-run issues zero mutating
+//     calls instead of depending on kDrive treating a move/rename-to-current-
+//     state as a no-op (an unverified server behavior).
+//   - Partial first run self-heals. Move applied but Rename not (or vice versa)
+//     ⇒ the re-run issues only the missing half.
+//   - Out-of-band drift is corrected. If another client relocated/renamed the
+//     file since the manifest snapshot, we still drive it to the target rather
+//     than acting on the stale manifest path (fromRel).
+//
+// Name decisions are exact: the API always returns the name, so cur.Name vs the
+// target base name is authoritative. Parent decisions use cur.ParentID when the
+// API reports it (> 0); when parent_id is absent (0), we fall back to the
+// manifest's intent (source vs target directory) so we don't issue a spurious
+// move-to-current-parent — 0 never equals a valid folder id, so a blind compare
+// would always "move". fromRel is therefore only a fallback signal, never the
+// primary source of truth.
 func (e *PushExecutor) Move(ctx context.Context, fromRel, toRel string, remoteID int64) (int64, error) {
-	if path.Dir(fromRel) != path.Dir(toRel) {
-		destParent, err := e.resolver.Resolve(ctx, path.Dir(toRel))
-		if err != nil {
-			return 0, fmt.Errorf("resolve dest of %s: %w", toRel, err)
-		}
+	cur, err := e.stater.Stat(ctx, remoteID)
+	if err != nil {
+		return 0, err
+	}
+	destParent, err := e.resolver.Resolve(ctx, path.Dir(toRel))
+	if err != nil {
+		return 0, fmt.Errorf("resolve dest of %s: %w", toRel, err)
+	}
+	needMove := cur.ParentID != destParent
+	if cur.ParentID == 0 { // API omitted parent_id: trust the manifest's intent
+		needMove = path.Dir(fromRel) != path.Dir(toRel)
+	}
+	mutated := false
+	if needMove {
 		if err := e.mover.Move(ctx, remoteID, destParent); err != nil {
 			return 0, err
 		}
+		mutated = true
 	}
-	if path.Base(fromRel) != path.Base(toRel) {
+	if cur.Name != path.Base(toRel) {
 		if _, err := e.mover.Rename(ctx, remoteID, path.Base(toRel)); err != nil {
 			return 0, err
 		}
+		mutated = true
+	}
+	if !mutated {
+		// Already in the target state — cur's mtime is authoritative.
+		return cur.LastModifiedAt, nil
 	}
 	info, err := e.stater.Stat(ctx, remoteID)
 	if err != nil {
