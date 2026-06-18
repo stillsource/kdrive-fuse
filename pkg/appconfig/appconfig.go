@@ -5,9 +5,11 @@ package appconfig
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/sethvargo/go-envconfig"
@@ -26,6 +28,7 @@ type Config struct {
 	DiskCacheDir   string `env:"KDRIVE_DISK_CACHE_DIR,default="`
 	DiskCacheMaxGB int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
 	ReadOnly       bool   `env:"KDRIVE_READONLY,default=false"`
+	LogFormat      string `env:"KDRIVE_LOG_FORMAT,default=text"`
 }
 
 // Load reads the shared KDRIVE_* environment into a Config.
@@ -50,6 +53,16 @@ func (c *Config) CacheDir() string {
 	}
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".cache", "kdrive-fuse")
+}
+
+// NewLogger builds the slog logger for the configured KDRIVE_LOG_FORMAT: a JSON
+// handler when set to "json" (grep-friendly with jq), otherwise a text handler.
+// Any unrecognized value falls back to text so a typo never crashes a daemon.
+func (c *Config) NewLogger(w io.Writer) *slog.Logger {
+	if strings.EqualFold(c.LogFormat, "json") {
+		return slog.New(slog.NewJSONHandler(w, nil))
+	}
+	return slog.New(slog.NewTextHandler(w, nil))
 }
 
 // DI builds the di.Config used to construct the application container,

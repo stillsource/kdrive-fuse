@@ -54,6 +54,7 @@ export KDRIVE_DISK_CACHE_DIR="$HOME/.cache/kdrive-fuse"
 export KDRIVE_DISK_CACHE_MAX_GB="2"
 export KDRIVE_CACHE_TTL_SECONDS="30"
 export KDRIVE_READONLY="1"                       # mount read-only (reject all writes with EROFS)
+export KDRIVE_LOG_FORMAT="text"                  # log format: text (default) or json (jq-friendly)
 
 kdrive-fuse
 ```

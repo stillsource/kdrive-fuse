@@ -5,7 +5,6 @@ import (
 	"flag"
 	"fmt"
 	"io"
-	"log/slog"
 	"os"
 	"os/signal"
 	"path/filepath"
@@ -221,11 +220,11 @@ func runVerify(ctx context.Context, local string, files syncer.Remote, rootID in
 // folder id, and computes the manifest path for a sync run. It is a package var
 // so tests can substitute an in-memory backend.
 var syncBackend = func(ctx context.Context, local, remote string, stderr io.Writer) (syncer.Remote, int64, string, error) {
-	log := slog.New(slog.NewTextHandler(stderr, nil))
 	app, err := appconfig.Load(ctx)
 	if err != nil {
 		return nil, 0, "", err
 	}
+	log := app.NewLogger(stderr)
 	files := di.NewContainer(app.DI(log)).Client().Files
 	rootID, err := remoteindex.NewResolver(files, files, app.RootFolderID).Resolve(ctx, remote)
 	if err != nil {
