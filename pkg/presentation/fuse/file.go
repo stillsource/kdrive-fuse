@@ -31,6 +31,8 @@ type FileNode struct {
 var _ fs.NodeGetattrer = (*FileNode)(nil)
 var _ fs.NodeOpener = (*FileNode)(nil)
 var _ fs.NodeSetattrer = (*FileNode)(nil)
+var _ fs.NodeGetxattrer = (*FileNode)(nil)
+var _ fs.NodeListxattrer = (*FileNode)(nil)
 
 // Getattr returns file attributes.
 func (f *FileNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
@@ -41,6 +43,19 @@ func (f *FileNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut
 	f.kdfs.applyOwner(&out.Attr)
 	out.SetTimeout(30 * time.Second)
 	return 0
+}
+
+// Getxattr returns the value of one extended attribute. It follows the FUSE
+// size-probe protocol: a zero-length dest returns the size; a too-small dest
+// returns ERANGE; an unknown attribute returns ENODATA.
+func (f *FileNode) Getxattr(_ context.Context, attr string, dest []byte) (uint32, syscall.Errno) {
+	return getXattrValue(kdriveXattrs(f.info), attr, dest)
+}
+
+// Listxattr returns the NUL-separated list of attribute names, following the
+// same size-probe protocol as Getxattr.
+func (f *FileNode) Listxattr(_ context.Context, dest []byte) (uint32, syscall.Errno) {
+	return listXattrNames(kdriveXattrs(f.info), dest)
 }
 
 // Setattr accepts size/time updates. Truncate updates the working file if one
