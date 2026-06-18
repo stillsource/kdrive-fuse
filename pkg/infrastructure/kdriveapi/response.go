@@ -38,6 +38,7 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 	for attempt := 0; attempt <= c.maxRetries; attempt++ {
 		if attempt > 0 {
 			if err := sleepCtx(ctx, backoff); err != nil {
+				c.observe(method, "error")
 				return nil, err
 			}
 			backoff *= 2
@@ -49,6 +50,7 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 		}
 		req, err := http.NewRequestWithContext(ctx, method, url, reader)
 		if err != nil {
+			c.observe(method, "error")
 			return nil, scerr.Wrap(domain.ErrValidation, scerr.WithDetailf("build request: %v", err))
 		}
 		req.Header.Set("Authorization", "Bearer "+c.token)

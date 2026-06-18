@@ -82,6 +82,7 @@ func (s *FilesService) uploadSession(ctx context.Context, in service.UploadInput
 		s.sessionCancel(ctx, token)
 		return domain.FileInfo{}, err
 	}
+	s.client.addUploaded(in.Size) // count chunked uploads too (single-shot counts in Upload)
 	return info, nil
 }
 

@@ -73,6 +73,27 @@ var _ = Describe("Client metrics", func() {
 		Expect(atomic.LoadInt64(&sink.uploaded)).To(Equal(int64(5)))
 	})
 
+	It("records bytes uploaded on a chunked (session) upload", func() {
+		withSmallChunks(4, 4) // force the session path for files > 4 bytes
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, `{"data":{"token":"SESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			_ = readBody(r)
+			writeJSON(w, 200, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, 200, `{"data":{"id":99,"name":"big.bin","type":"file","size":10}}`)
+		})
+		body := []byte("0123456789") // 10 bytes > threshold 4 -> chunked session
+		_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
+			ParentID: 1, Name: "big.bin",
+			Body: bytes.NewReader(body), Size: int64(len(body)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(atomic.LoadInt64(&sink.uploaded)).To(Equal(int64(10)))
+	})
+
 	It("counts bytes as the download stream is read", func() {
 		fx.Mux.HandleFunc("/2/drive/1234/files/7/download", func(w http.ResponseWriter, r *http.Request) {
 			_, _ = w.Write([]byte("hello world"))
