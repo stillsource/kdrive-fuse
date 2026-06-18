@@ -249,7 +249,7 @@ CI (`.github/workflows/ci.yml`) runs `go vet`, the race detector, coverage gate 
 
 ## Known gaps
 
-See `ROADMAP.md`. Top missing work: `kdshare` CLI subcommand, `.trash/` virtual directory, kDrive xattrs surface.
+See `ROADMAP.md`. The completion program (data-safety hardening + the FUSE roadmap + bonus extras) is done. The only **deferred** item is **multi-drive mount** (YAGNI for a single drive — revisit if a second drive is added). One minor open item: explicitly verify + document Rename/Move idempotency.
 
 Prometheus metrics shipped: set `KDRIVE_METRICS_ADDR` (e.g. `:9090`) to serve a stdlib zero-dep `/metrics` side-car on the daemon (off by default). The `metrics.Registry` (`pkg/infrastructure/metrics`) is wired through `di.Config.Metrics` (nil = off); the kDrive client and disk cache report to it via small self-defined interfaces, so the CLI and all existing tests are unaffected.
 
