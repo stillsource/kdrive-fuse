@@ -1,6 +1,10 @@
 # Roadmap
 
-## ✅ Shipped in v0.1.0
+## ✅ Shipped
+
+Released through **v0.3.0**. The `kdrive sync` CLI and the `kdrive` binary landed
+in **v0.3.0**; the FUSE daemon and its upload-reliability work shipped across the
+v0.1–v0.2 line.
 
 ### Rename / Move
 `NodeRenamer` on `DirNode`, backed by `POST /files/{id}/rename` + `POST /files/{id}/move/{destID}`. Cross-directory rename is decomposed into move-then-rename. Both parent caches invalidated.
@@ -44,7 +48,7 @@ Files larger than 100 MB upload via the kDrive upload-session flow (`POST /uploa
 ### Upload resilience
 kDrive's upload endpoint has intermittent 502 / slow-response windows. Uploads (single-shot and chunked) use a dedicated HTTP client with a 2-minute timeout (vs 60s for reads, which stay snappy), tunable via `WithUploadTimeout`. The default retry count is 5 (6 attempts), so a file's upload rides out a multi-minute transient window instead of failing the copy. Also: the upload retry wraps the body in `io.NopCloser` so the transport can't close the caller's `*os.File` between attempts (a retry would otherwise fail on a closed body).
 
-### `kdrive sync` — CLI sync command
+### `kdrive sync` — CLI sync command (v0.3.0)
 `kdrive` binary (`cmd/kdrive`) with a `sync` subcommand that mirrors a local tree and its kDrive copy. Push by default (local → remote); `--pull` mirrors the other way. Change detection uses a manifest baseline (size + mtime; the kDrive API exposes no content hash) stored at `$XDG_STATE_HOME/kdrive/<hash>.tsv`. Steady-state push needs no remote listing because the manifest carries remote IDs. Flags: `--pull`, `--dry-run`, `--no-delete`, `--force`, `--assume-new`, `--refresh`, `--verify`, `--jobs N`. Deletion guard refuses to delete > 20% of the baseline without `--force`. Bootstrap from a remote index on first run or `--refresh`. `Verify` reports presence + size discrepancies post-sync.
 
 Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infrastructure/manifest` (TSV store), `pkg/infrastructure/remoteindex` (`Build` + `Resolver`), `pkg/presentation/cli` (`Run` dispatcher + `sync` command), `pkg/syncer` (planner, runners, executors, `WalkLocal`, guards, `Verify`).

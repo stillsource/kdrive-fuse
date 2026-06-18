@@ -57,6 +57,8 @@ export KDRIVE_CACHE_TTL_SECONDS="30"
 kdrive-fuse
 ```
 
+Or copy [`.env.example`](./.env.example) to `.env`, fill it in, and load it with `set -a; source .env; set +a` before running — `.env` is gitignored, so your token never lands in the repo.
+
 Run it as a systemd user service to auto-mount at login — see the example unit [`docs/kdrive-vfs.service`](./docs/kdrive-vfs.service).
 
 ## CLI / sync
@@ -152,7 +154,7 @@ CI enforces `go vet`, race-detector tests, coverage ≥ 90%, and `golangci-lint`
 Push a semver tag (`vX.Y.Z`) — the release workflow runs the test suite, then [GoReleaser](https://goreleaser.com) cross-compiles both binaries (`kdrive-fuse` and `kdrive`), writes `checksums.txt`, and publishes a GitHub Release with a changelog grouped from Conventional Commits. The version is embedded via `-ldflags` and reported by `kdrive-fuse --version` / `kdrive --version`.
 
 ```bash
-git tag v0.3.0 && git push origin v0.3.0   # triggers .github/workflows/release.yml
+git tag vX.Y.Z && git push origin vX.Y.Z   # triggers .github/workflows/release.yml
 ```
 
 ## License
