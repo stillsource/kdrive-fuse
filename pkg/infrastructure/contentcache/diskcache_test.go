@@ -15,6 +15,16 @@ import (
 	"github.com/stillsource/kdrive-fuse/pkg/service/servicefakes"
 )
 
+type testObserver struct {
+	hits   int
+	misses int
+	bytes  int64
+}
+
+func (o *testObserver) CacheHit()             { o.hits++ }
+func (o *testObserver) CacheMiss()            { o.misses++ }
+func (o *testObserver) SetCacheBytes(n int64) { o.bytes = n }
+
 var _ = Describe("DiskCache", func() {
 	var (
 		dir  string
@@ -32,7 +42,7 @@ var _ = Describe("DiskCache", func() {
 		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("hello cached")},
 		}
-		dc, err := NewDiskCache(dir, 1024, fake)
+		dc, err := NewDiskCache(dir, 1024, fake, nil)
 		Expect(err).NotTo(HaveOccurred())
 
 		f, err := dc.Open(ctx, 10, 1700000000, 12)
@@ -47,7 +57,7 @@ var _ = Describe("DiskCache", func() {
 		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			10: {Data: []byte("x")},
 		}
-		dc, _ := NewDiskCache(dir, 1024, fake)
+		dc, _ := NewDiskCache(dir, 1024, fake, nil)
 
 		f1, _ := dc.Open(ctx, 10, 42, 1)
 		_ = f1.Close()
@@ -61,7 +71,7 @@ var _ = Describe("DiskCache", func() {
 		fake.DownloadStreamStub = func(_ context.Context, id, _, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader([]byte("v"))), nil
 		}
-		dc, _ := NewDiskCache(dir, 1024, fake)
+		dc, _ := NewDiskCache(dir, 1024, fake, nil)
 
 		f1, _ := dc.Open(ctx, 10, 1, 1)
 		_ = f1.Close()
@@ -75,7 +85,7 @@ var _ = Describe("DiskCache", func() {
 		fake.DownloadStreamStub = func(_ context.Context, _, _, _ int64) (io.ReadCloser, error) {
 			return io.NopCloser(bytes.NewReader([]byte("abcde"))), nil
 		}
-		dc, _ := NewDiskCache(dir, 8, fake)
+		dc, _ := NewDiskCache(dir, 8, fake, nil)
 
 		_, _ = dc.Open(ctx, 1, 1, 5)
 		time.Sleep(10 * time.Millisecond) // separate atime
@@ -89,14 +99,38 @@ var _ = Describe("DiskCache", func() {
 		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
 			1: {Err: domain.ErrNotFound},
 		}
-		dc, _ := NewDiskCache(dir, 1024, fake)
+		dc, _ := NewDiskCache(dir, 1024, fake, nil)
 		_, err := dc.Open(ctx, 1, 1, 1)
 		Expect(err).To(MatchError(domain.ErrNotFound))
 	})
 
 	It("rejects a non-writable dir on construction", func() {
 		bad := filepath.Join(dir, "nope", "\x00")
-		_, err := NewDiskCache(bad, 1024, fake)
+		_, err := NewDiskCache(bad, 1024, fake, nil)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("calls observer on hit, miss, and reports bytes", func() {
+		fake.DownloadStreamResults = map[int64]servicefakes.DownloadStreamResult{
+			5: {Data: []byte("data")},
+		}
+		obs := &testObserver{}
+		dc, err := NewDiskCache(dir, 1024, fake, obs)
+		Expect(err).NotTo(HaveOccurred())
+
+		// First open: miss
+		f1, err := dc.Open(ctx, 5, 1, 4)
+		Expect(err).NotTo(HaveOccurred())
+		_ = f1.Close()
+		Expect(obs.misses).To(Equal(1))
+		Expect(obs.hits).To(Equal(0))
+		Expect(obs.bytes).To(BeNumerically(">", 0))
+
+		// Second open: hit
+		f2, err := dc.Open(ctx, 5, 1, 4)
+		Expect(err).NotTo(HaveOccurred())
+		_ = f2.Close()
+		Expect(obs.hits).To(Equal(1))
+		Expect(obs.misses).To(Equal(1))
 	})
 })

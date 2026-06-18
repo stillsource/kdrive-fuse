@@ -14,6 +14,9 @@ func (c *Container) Client() *kdriveapi.Client {
 		if c.cfg.UploadBaseURL != "" {
 			opts = append(opts, kdriveapi.WithUploadBaseURL(c.cfg.UploadBaseURL))
 		}
+		if c.cfg.Metrics != nil {
+			opts = append(opts, kdriveapi.WithMetrics(c.cfg.Metrics))
+		}
 		c.client = kdriveapi.New(c.cfg.Token, c.cfg.DriveID, opts...)
 	}
 	return c.client

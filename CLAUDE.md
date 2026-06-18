@@ -31,7 +31,7 @@ fusermount -u ~/kDrive-vfs                         # manual unmount
 
 Shared `KDRIVE_*` env (loaded by both binaries via `pkg/appconfig`):
 Required: `KDRIVE_API_TOKEN`, `KDRIVE_DRIVE_ID`.
-Optional: `KDRIVE_ROOT_FOLDER_ID` (default `1`), `KDRIVE_BASE_URL`, `KDRIVE_UPLOAD_BASE_URL`, `KDRIVE_CACHE_TTL_SECONDS` (default `30`), `KDRIVE_DISK_CACHE_DIR` (default `~/.cache/kdrive-fuse`), `KDRIVE_DISK_CACHE_MAX_GB` (default `2`), `KDRIVE_READONLY` (default `false`; set to `1` or `true` to reject all writes with EROFS), `KDRIVE_LOG_FORMAT` (default `text`; set to `json` for structured jq-friendly logs).
+Optional: `KDRIVE_ROOT_FOLDER_ID` (default `1`), `KDRIVE_BASE_URL`, `KDRIVE_UPLOAD_BASE_URL`, `KDRIVE_CACHE_TTL_SECONDS` (default `30`), `KDRIVE_DISK_CACHE_DIR` (default `~/.cache/kdrive-fuse`), `KDRIVE_DISK_CACHE_MAX_GB` (default `2`), `KDRIVE_READONLY` (default `false`; set to `1` or `true` to reject all writes with EROFS), `KDRIVE_LOG_FORMAT` (default `text`; set to `json` for structured jq-friendly logs), `KDRIVE_METRICS_ADDR` (default empty/off; set to e.g. `:9090` to serve a Prometheus `/metrics` side-car — daemon only).
 
 Daemon-only env (loaded by `cmd/kdrive-fuse/config`):
 Required: `KDRIVE_MOUNT`.
@@ -81,7 +81,13 @@ pkg/infrastructure/             the adapters — concrete implementations of the
 │   └── internal/hash/xxh3.go   xxh3-64 + "xxh3:" prefix for upload hashing
 ├── listingcache/memory.go      DirCache — TTL cache for directory listings; NewDirCache(ttl)
 ├── contentcache/disk.go        DiskCache — LRU disk cache keyed by (fileID, last_modified_at);
-│                               NewDiskCache(dir, maxBytes, files service.FileReader)
+│                               NewDiskCache(dir, maxBytes, files service.FileReader, obs cacheObserver)
+│                               obs (optional, nil = off) gets CacheHit/CacheMiss/SetCacheBytes events
+├── metrics/metrics.go          Registry — stdlib zero-dep Prometheus text-exposition collector
+│                               (mutex-guarded counters + cache-bytes gauge) + Handler(); New().
+│                               *metrics.Registry satisfies the small metricsSink / cacheObserver
+│                               interfaces the kdriveapi client and contentcache define themselves,
+│                               so neither imports this package. Enabled via KDRIVE_METRICS_ADDR.
 ├── manifest/                   sync baseline store
 │   ├── manifest.go             Manifest (map[rel]Entry) — size, local mtime, remote ID, remote mtime
 │   ├── store.go                Load / Save (TSV serialization)
@@ -243,6 +249,8 @@ CI (`.github/workflows/ci.yml`) runs `go vet`, the race detector, coverage gate 
 
 ## Known gaps
 
-See `ROADMAP.md`. Top missing work: `kdshare` CLI subcommand, `.trash/` virtual directory, kDrive xattrs surface, Prometheus metrics.
+See `ROADMAP.md`. Top missing work: `kdshare` CLI subcommand, `.trash/` virtual directory, kDrive xattrs surface.
+
+Prometheus metrics shipped: set `KDRIVE_METRICS_ADDR` (e.g. `:9090`) to serve a stdlib zero-dep `/metrics` side-car on the daemon (off by default). The `metrics.Registry` (`pkg/infrastructure/metrics`) is wired through `di.Config.Metrics` (nil = off); the kDrive client and disk cache report to it via small self-defined interfaces, so the CLI and all existing tests are unaffected.
 
 `touch` now works: `Setattr` persists mtime via `FileNode.Setattr` → `SetMtime.Execute` → `FilesService.SetModifiedAt` → `POST /files/{id}/last-modified` with body `{"last_modified_at": <unix seconds>}`. On a `ReadOnly` mount, an mtime `Setattr` returns `EROFS`. The parent listing is invalidated on success so subsequent `ls` reflects the new time.

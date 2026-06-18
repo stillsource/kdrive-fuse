@@ -56,6 +56,9 @@ Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infras
 ### Setattr `utimens` → `last_modified_at` (touch support)
 `Setattr` now persists mtime via `POST /files/{id}/last-modified` with body `{"last_modified_at": <unix seconds>}` — the endpoint confirmed in Infomaniak's desktop-kDrive client. The `SetModifiedAt` method on `FilesService` mirrors the `Rename` adapter; the `SetMtime` use case invalidates the parent listing on success. `FileNode.Setattr` resolves the parent `DirNode`'s `folderID`, calls `SetMtime.Execute`, and patches `f.info.LastModifiedAt`. On a `ReadOnly` mount, an mtime `Setattr` returns `EROFS`. `touch file` now works as expected.
 
+### Prometheus metrics (`KDRIVE_METRICS_ADDR`)
+Optional `/metrics` HTTP side-car on the FUSE daemon, off by default and enabled by setting `KDRIVE_METRICS_ADDR` (e.g. `:9090`). Built with the Go standard library only — a stdlib zero-dep Prometheus text exposition (no `github.com/prometheus/client_golang`). A mutex-guarded `Registry` in `pkg/infrastructure/metrics` collects the counters and renders the exposition via an `http.Handler`; the kDrive client and the disk cache are instrumented through small interfaces they define themselves (so neither imports the metrics package — `*metrics.Registry` satisfies them), and `di.Config` carries an optional `*metrics.Registry` (nil = disabled, the default, so the CLI and tests are unaffected). Exposed: `kdrive_api_requests_total{method,status}`, `kdrive_bytes_uploaded_total`, `kdrive_bytes_downloaded_total`, `kdrive_cache_hits_total`, `kdrive_cache_misses_total`, and the `kdrive_cache_bytes_on_disk` gauge. Cache effectiveness is exposed as the idiomatic hits/misses counters rather than a `cache_hit_ratio` gauge — the ratio is computed at query time in Prometheus. **Migration path:** if the counter set grows, swap to `github.com/prometheus/client_golang` (`Registry` → `prometheus.Registerer`, the observe methods → `prometheus.Counter`/`Gauge`, `Handler` → `promhttp.Handler`).
+
 ### Upload conflict handling
 `UploadInput.Conflict` selects the conflict mode for new uploads: `""` (default) → `conflict=error`; `"version"` → keep existing as a prior version; `"rename"` → append ` (1)` to the name. The field is ignored in edit mode (uses `file_id`). The FUSE `writeHandle` sets `Conflict: "rename"` for new-file creates so `cp` of a duplicate filename produces the familiar `foo (1).txt` behavior instead of failing. The sync path leaves `Conflict` empty (defaults to `error`) so the conflict-reconciliation logic in `PushExecutor.Upload` (detect `ErrConflict` → overwrite by id) still works correctly. Applies to both single-shot and chunked upload paths.
 
@@ -104,6 +107,3 @@ Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.searc
 
 ### Multi-drive mount
 Mount multiple drives under `/mnt/kdrive/{drive_id}/`. One `KDriveFS` per drive; the top-level inode lists configured drives.
-
-### Prometheus metrics
-HTTP side-car exposing `/metrics`. Counters to track: `kdrive_api_requests_total{op,status}`, `kdrive_bytes_uploaded`, `kdrive_bytes_downloaded`, `kdrive_cache_hit_ratio`, `kdrive_cache_bytes_on_disk`.

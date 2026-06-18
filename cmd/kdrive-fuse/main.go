@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"log/slog"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
@@ -16,6 +17,7 @@ import (
 	"github.com/stillsource/kdrive-fuse/cmd/kdrive-fuse/config"
 	"github.com/stillsource/kdrive-fuse/pkg/appconfig"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/di"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/metrics"
 )
 
 // version is the build version, overridden at release time via
@@ -55,7 +57,21 @@ func main() {
 	log = app.NewLogger(os.Stderr)
 	slog.SetDefault(log)
 
-	c := di.NewContainer(app.DI(log))
+	dicfg := app.DI(log)
+	if app.MetricsAddr != "" {
+		reg := metrics.New()
+		dicfg.Metrics = reg
+		mux := http.NewServeMux()
+		mux.Handle("/metrics", reg.Handler())
+		srv := &http.Server{Addr: app.MetricsAddr, Handler: mux, ReadHeaderTimeout: 5 * time.Second}
+		go func() {
+			log.Info("metrics listening", "addr", app.MetricsAddr)
+			if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+				log.Error("metrics server", "err", err)
+			}
+		}()
+	}
+	c := di.NewContainer(dicfg)
 	root, err := c.RootNode()
 	if err != nil {
 		log.Error("disk cache", "err", err)

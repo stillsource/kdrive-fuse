@@ -6,7 +6,7 @@ import "github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
 // memoized only on success, so a transient failure can be retried.
 func (c *Container) ContentCache() (*contentcache.DiskCache, error) {
 	if c.content == nil {
-		content, err := contentcache.NewDiskCache(c.cfg.DiskCacheDir, c.cfg.DiskCacheBytes, c.Client().Files)
+		content, err := contentcache.NewDiskCache(c.cfg.DiskCacheDir, c.cfg.DiskCacheBytes, c.Client().Files, c.cfg.Metrics)
 		if err != nil {
 			return nil, err
 		}

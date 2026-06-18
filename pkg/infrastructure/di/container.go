@@ -13,6 +13,7 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/contentcache"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/metrics"
 	"github.com/stillsource/kdrive-fuse/pkg/presentation/fuse"
 )
 
@@ -47,6 +48,9 @@ type Config struct {
 	// ReadOnly, when true, makes the FUSE filesystem reject all mutating
 	// operations with EROFS. Reads are unaffected.
 	ReadOnly bool
+
+	// Metrics is an optional metrics registry. nil disables metrics collection.
+	Metrics *metrics.Registry
 }
 
 // Container builds and memoizes the infrastructure object graph from a Config.

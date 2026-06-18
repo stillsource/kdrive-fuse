@@ -8,12 +8,19 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"time"
 
 	scerr "github.com/scality/go-errors"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
+
+func (c *Client) observe(method, status string) {
+	if c.metrics != nil {
+		c.metrics.ObserveRequest(method, status)
+	}
+}
 
 // do executes an authenticated request with retry on transient failures.
 // Body must be nil or a rewindable []byte (repeatable for retries).
@@ -56,6 +63,7 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 		if err != nil {
 			lastErr = err
 			if !isRetryableError(err) {
+				c.observe(method, "error")
 				return nil, scerr.Wrap(domain.ErrServer,
 					scerr.WithDetail("transport error"),
 					scerr.CausedBy(err),
@@ -80,16 +88,19 @@ func (c *Client) doRaw(ctx context.Context, method, url, contentType string, bod
 		}
 
 		if resp.StatusCode >= 400 {
+			c.observe(method, strconv.Itoa(resp.StatusCode))
 			apiErr := fromResponse(resp, method+" "+endpointOf(url))
 			drainAndClose(resp.Body)
 			return nil, apiErr
 		}
+		c.observe(method, strconv.Itoa(resp.StatusCode))
 		return resp, nil
 	}
 
 	if lastErr == nil {
 		lastErr = fmt.Errorf("kdrive: retries exhausted")
 	}
+	c.observe(method, "error")
 	return nil, scerr.Wrap(domain.ErrServer,
 		scerr.WithDetail("retries exhausted"),
 		scerr.CausedBy(lastErr),

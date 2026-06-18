@@ -41,7 +41,7 @@ func newMountFixture(fake *servicefakes.FilesFake) *mountFixture {
 	Expect(os.Mkdir(mnt, 0o755)).To(Succeed())
 	cache := filepath.Join(tmp, "cache")
 
-	disk, err := contentcache.NewDiskCache(cache, 1<<20, fake)
+	disk, err := contentcache.NewDiskCache(cache, 1<<20, fake, nil)
 	Expect(err).NotTo(HaveOccurred())
 	kdfs := NewKDriveFS(fake, time.Minute, disk, false)
 	root := NewRootDirNode(kdfs, 1)
@@ -392,7 +392,7 @@ var _ = Describe("Read-only mount", func() {
 		Expect(os.Mkdir(mnt, 0o755)).To(Succeed())
 		cache := filepath.Join(tmp, "cache")
 
-		disk, err := contentcache.NewDiskCache(cache, 1<<20, fake)
+		disk, err := contentcache.NewDiskCache(cache, 1<<20, fake, nil)
 		Expect(err).NotTo(HaveOccurred())
 		kdfs := NewKDriveFS(fake, time.Minute, disk, true /* readOnly */)
 		root := NewRootDirNode(kdfs, 1)
