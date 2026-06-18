@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working in this
 A self-contained Go **application** with two binaries:
 
 - `cmd/kdrive-fuse` — mounts an Infomaniak kDrive remote as a FUSE filesystem, backed by a disk cache.
-- `cmd/kdrive` — a command-line companion for operations that don't require a mount (currently: `kdrive sync`, `kdrive share`).
+- `cmd/kdrive` — a command-line companion for operations that don't require a mount (currently: `kdrive sync`, `kdrive share`, `kdrive trash`).
 
 The kDrive REST API v2 client lives **inside** the application as an internal infrastructure adapter (`pkg/infrastructure/kdriveapi`). It is not a public, importable library — there is no `github.com/stillsource/kdrive-fuse/kdrive` package to depend on. The module is layered under `pkg/` following clean architecture: every other layer depends inward on `pkg/domain`.
 
@@ -74,7 +74,8 @@ pkg/infrastructure/             the adapters — concrete implementations of the
 │   │                           reads use a 60s http client; uploads a separate 2m client (large/slow transfers); default 5 retries
 │   ├── response.go             request / retry / decode plumbing
 │   ├── ports.go                the service interfaces the client satisfies
-│   ├── files.go                *FilesService (List, Stat, Download, DownloadStream, Upload, Mkdir, Delete, Rename, Move)
+│   ├── files.go                *FilesService (List, Stat, Download, DownloadStream, Upload, Mkdir, Delete, Rename, Move, SetModifiedAt)
+│   ├── trash.go                *FilesService trash methods (ListTrash, RestoreTrash, PurgeTrash, EmptyTrash)
 │   ├── shares.go               *SharesService (Publish)
 │   ├── errors.go               HTTP-status → domain-sentinel mapping
 │   └── internal/hash/xxh3.go   xxh3-64 + "xxh3:" prefix for upload hashing
@@ -116,7 +117,8 @@ pkg/presentation/fuse/          FUSE presentation layer — kernel-driven node/h
 pkg/presentation/cli/           CLI presentation layer — subcommand dispatcher + sync + share commands
 ├── root.go                     Run(args, version, stdout, stderr) — dispatches --help/--version/sync/share
 ├── sync.go                     runSync — flag parsing + PushOptions/PullOptions → syncer.Push / syncer.Pull
-└── share.go                    runShare — resolve REMOTE_PATH read-only via remoteindex.Lister, publish via usecase.ShareFile, print ShareURL
+├── share.go                    runShare — resolve REMOTE_PATH read-only via remoteindex.Lister, publish via usecase.ShareFile, print ShareURL
+└── trash.go                    runTrash — browse and manage kDrive trash (list/restore/purge/empty); trashBackend seam; trasher interface
 cmd/kdrive-fuse/                FUSE daemon entry point
 ├── main.go                     --version + signal handling; loads appconfig + config.LoadFUSE → di.NewContainer → fs.Mount
 └── config/env.go               mount-only config: FUSE{Mount} loaded from KDRIVE_MOUNT
@@ -141,6 +143,8 @@ The DI container builds the graph once at boot, so every flow below runs through
 `cmd/kdrive` is a command-line companion to the FUSE daemon. `pkg/presentation/cli.Run` dispatches subcommands: `sync` and `share`.
 
 **`kdrive share REMOTE_PATH`** resolves a path under the drive root to a file ID (read-only listing via `remoteindex.Lister` — never creates directories), calls `usecase.NewShareFile(sharer).Execute(ctx, fileID)` which wraps `service.Sharer.Publish`, and prints `domain.ShareInfo.ShareURL` to stdout. The backend seam (`shareBackend` package var) mirrors the `syncBackend` pattern so tests can inject fakes. Intermediate segments must be directories; the final segment must be a non-directory file.
+
+**`kdrive trash`** manages the kDrive trash via four subcommands: `list` (pages all trashed items, prints id/name/size), `restore <FILE_ID>` (POST /trash/{id}/restore), `purge <FILE_ID> --yes` (DELETE /trash/{id}, permanent), `empty --yes` (DELETE /trash, permanent). Destructive operations (`purge`, `empty`) require `--yes` or exit 1 with an irreversibility warning. The `trashBackend` package-var seam and `trasher` interface (in `trash.go`) follow the same pattern as `shareBackend`/`syncBackend`. Backed by four new methods on `*kdriveapi.FilesService`: `ListTrash`, `RestoreTrash`, `PurgeTrash`, `EmptyTrash` (in `pkg/infrastructure/kdriveapi/trash.go`).
 
 **`kdrive sync [flags] [LOCAL] [REMOTE]`** mirrors a local directory tree and a kDrive folder (push by default; `--pull` for the reverse). It does not require a FUSE mount.
 
