@@ -25,4 +25,5 @@ type FileManager interface {
 	Delete(ctx context.Context, fileID int64) error
 	Rename(ctx context.Context, fileID int64, newName string) (domain.FileInfo, error)
 	Move(ctx context.Context, fileID, destDirID int64) error
+	SetModifiedAt(ctx context.Context, fileID, modifiedAt int64) (domain.FileInfo, error)
 }

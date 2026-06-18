@@ -29,6 +29,7 @@ type KDriveFS struct {
 	DeleteEntry *usecase.DeleteEntry
 	RenameEntry *usecase.RenameEntry
 	MakeDir     *usecase.MakeDir
+	SetMtime    *usecase.SetMtime
 
 	// Uid/Gid are stamped onto every node's attributes. kDrive has no POSIX
 	// ownership, so without this nodes default to root (uid 0) and the mounting
@@ -57,6 +58,7 @@ func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk service.ContentC
 		DeleteEntry: usecase.NewDeleteEntry(files, listing),
 		RenameEntry: usecase.NewRenameEntry(files, listing),
 		MakeDir:     usecase.NewMakeDir(files, listing),
+		SetMtime:    usecase.NewSetMtime(files, listing),
 		Uid:         uint32(os.Getuid()),
 		Gid:         uint32(os.Getgid()),
 		ReadOnly:    readOnly,

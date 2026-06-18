@@ -491,6 +491,37 @@ var _ = Describe("FilesService", func() {
 			Expect(errors.Is(fx.Client.Files.Move(ctx, 1, 0), domain.ErrValidation)).To(BeTrue())
 		})
 	})
+
+	Describe("SetModifiedAt", func() {
+		It("posts last_modified_at and returns updated FileInfo", func() {
+			var gotBody []byte
+			fx.Mux.HandleFunc("/2/drive/1234/files/88/last-modified", func(w http.ResponseWriter, r *http.Request) {
+				Expect(r.Method).To(Equal("POST"))
+				gotBody = readBody(r)
+				writeJSON(w, 200, `{"data":{"id":88,"name":"doc.txt","type":"file","last_modified_at":1700000000}}`)
+			})
+			info, err := fx.Client.Files.SetModifiedAt(ctx, 88, 1700000000)
+			Expect(err).NotTo(HaveOccurred())
+			Expect(info.ID).To(Equal(int64(88)))
+			Expect(info.LastModifiedAt).To(Equal(int64(1700000000)))
+			var body map[string]int64
+			Expect(json.Unmarshal(gotBody, &body)).To(Succeed())
+			Expect(body["last_modified_at"]).To(Equal(int64(1700000000)))
+		})
+
+		It("rejects invalid file id", func() {
+			_, err := fx.Client.Files.SetModifiedAt(ctx, 0, 1700000000)
+			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
+		})
+
+		It("maps 404 to ErrNotFound", func() {
+			fx.Mux.HandleFunc("/2/drive/1234/files/99/last-modified", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, 404, `{"error":"not found"}`)
+			})
+			_, err := fx.Client.Files.SetModifiedAt(ctx, 99, 1700000000)
+			Expect(errors.Is(err, domain.ErrNotFound)).To(BeTrue())
+		})
+	})
 })
 
 // drain helpers for stream tests

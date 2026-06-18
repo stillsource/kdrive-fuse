@@ -217,4 +217,6 @@ CI (`.github/workflows/ci.yml`) runs `go vet`, the race detector, coverage gate 
 
 ## Known gaps
 
-See `ROADMAP.md`. Top missing work: `kdshare` CLI subcommand, `.trash/` virtual directory, real `Setattr` persistence (`touch` mtime), kDrive xattrs surface, Prometheus metrics.
+See `ROADMAP.md`. Top missing work: `kdshare` CLI subcommand, `.trash/` virtual directory, kDrive xattrs surface, Prometheus metrics.
+
+`touch` now works: `Setattr` persists mtime via `FileNode.Setattr` → `SetMtime.Execute` → `FilesService.SetModifiedAt` → `POST /files/{id}/last-modified` with body `{"last_modified_at": <unix seconds>}`. On a `ReadOnly` mount, an mtime `Setattr` returns `EROFS`. The parent listing is invalidated on success so subsequent `ls` reflects the new time.

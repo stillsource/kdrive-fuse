@@ -226,6 +226,29 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 		// interrupted/empty create must not leave a 0-byte placeholder.
 		Expect(fx.Fake.GetUploadCalls()).To(BeEmpty())
 	})
+
+	It("Setattr mtime (touch) calls SetModifiedAt and updates the node's reported mtime", func() {
+		const newMtime = int64(1700000000)
+		fake := baseFake()
+		fake.SetModifiedAtResults = map[int64]servicefakes.SetModifiedAtResult{
+			10: {Info: domain.FileInfo{ID: 10, Name: "hello.txt", Type: domain.FileTypeFile, Size: 11, LastModifiedAt: newMtime}},
+		}
+		fx := newMountFixture(fake)
+
+		target := time.Unix(newMtime, 0)
+		Expect(os.Chtimes(filepath.Join(fx.Dir, "hello.txt"), target, target)).To(Succeed())
+
+		calls := fx.Fake.GetSetModifiedAtCalls()
+		Expect(calls).To(HaveLen(1))
+		Expect(calls[0].FileID).To(Equal(int64(10)))
+		Expect(calls[0].ModifiedAt).To(Equal(newMtime))
+
+		// Allow the kernel attr cache to expire, then stat — mtime must reflect the update.
+		time.Sleep(100 * time.Millisecond)
+		info, err := os.Stat(filepath.Join(fx.Dir, "hello.txt"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(info.ModTime().Unix()).To(Equal(newMtime))
+	})
 })
 
 var _ = Describe("DirNode unit — no mount", func() {
@@ -300,6 +323,26 @@ var _ = Describe("FileNode unit — no mount", func() {
 		errno := f.Setattr(context.Background(), nil, in, &out)
 		Expect(errno).To(BeZero())
 		Expect(f.info.Size).To(Equal(int64(0)))
+	})
+
+	It("Setattr mtime returns EIO when node has no parent (not attached to tree)", func() {
+		// A bare FileNode (not mounted) has no parent — SetMtime cannot resolve
+		// the parent folderID and must return EIO rather than panic.
+		newMtime := time.Unix(1700000000, 0)
+		fake := &servicefakes.FilesFake{}
+		setMtime := usecase.NewSetMtime(fake, listingcache.NewDirCache(time.Second))
+		f := &FileNode{
+			kdfs: &KDriveFS{SetMtime: setMtime},
+			info: domain.FileInfo{ID: 10, Name: "doc.txt"},
+		}
+		in := &fuse.SetAttrIn{SetAttrInCommon: fuse.SetAttrInCommon{
+			Valid: fuse.FATTR_MTIME,
+			Mtime: uint64(newMtime.Unix()),
+		}}
+		var out fuse.AttrOut
+		errno := f.Setattr(context.Background(), nil, in, &out)
+		Expect(errno).To(Equal(syscall.EIO))
+		Expect(fake.GetSetModifiedAtCalls()).To(BeEmpty())
 	})
 })
 
@@ -399,6 +442,15 @@ var _ = Describe("Read-only mount", func() {
 
 	It("Truncate (Setattr size change) returns EROFS", func() {
 		err := os.Truncate(filepath.Join(fx.Dir, "hello.txt"), 0)
+		Expect(err).To(HaveOccurred())
+		var pathErr *os.PathError
+		Expect(errors.As(err, &pathErr)).To(BeTrue())
+		Expect(errors.Is(pathErr.Err, syscall.EROFS)).To(BeTrue())
+	})
+
+	It("Setattr mtime (touch) returns EROFS on a read-only mount", func() {
+		target := time.Unix(1700000000, 0)
+		err := os.Chtimes(filepath.Join(fx.Dir, "hello.txt"), target, target)
 		Expect(err).To(HaveOccurred())
 		var pathErr *os.PathError
 		Expect(errors.As(err, &pathErr)).To(BeTrue())
