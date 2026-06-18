@@ -80,18 +80,13 @@ Delivered as a `kdrive trash` CLI subcommand rather than a FUSE virtual `.trash/
 
 ---
 
----
+## ✅ Shipped — operational flags & CLI extras
 
-## Hygiene
+### `--readonly` mount (`KDRIVE_READONLY`)
+`KDRIVE_READONLY=1` makes the FUSE mount reject every mutation with EROFS — Create / Mkdir / Unlink / Rmdir / Rename, plus a writable `Open` and a size-changing `Setattr`. Reads still work. Safe for a shared or audited drive.
 
-### `--readonly` flag
-Env `KDRIVE_READONLY=1` disables Create / Mkdir / Unlink / Rmdir / Rename — they return EROFS. Safe for mounting a shared or audited drive.
-
-### Structured JSON logs
-Switch from `slog.NewTextHandler` to `slog.NewJSONHandler` so records are grep-friendly with `jq`. Keep the text handler as a `--log-format=text` opt-out.
-
-### Idempotency for non-idempotent ops
-Upload now retries transient failures (429 / 5xx / transport) by rewinding its `io.ReadSeeker` body before each attempt; non-transient 4xx fail fast. Verify that Rename / Move are idempotent (second call returns 404 or success) and document the guarantees; tighten if needed.
+### Structured JSON logs (`KDRIVE_LOG_FORMAT`)
+`KDRIVE_LOG_FORMAT=json` switches the daemon and the CLI client logger to `slog.NewJSONHandler` (jq-friendly); default `text` keeps `journalctl` human-readable. Standard-library `log/slog` only — no logging dependency.
 
 ### `kdrive search QUERY...` CLI
 Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.search/` directory (to avoid custom Lookup/Readdir interception and query-as-path escaping). Joins positional args with spaces, calls `GET /files/search?q=<query>&per_page=500&page=N` (paginated until exhausted), and prints one line per match (id, name, size) to stdout. Empty query exits 2 with usage; zero results print "no matches". Ids are scriptable — pipe to `kdrive share` or `kdrive trash`. Wired in `pkg/presentation/cli/search.go`; backed by `FilesService.Search` in `pkg/infrastructure/kdriveapi/search.go`; port `service.Searcher`; use case `usecase.SearchFiles`.
@@ -100,10 +95,13 @@ Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.searc
 
 ---
 
-## Bonus
+## Future / deferred
 
-### Full-text search (virtual directory)
-`GET /files/search?q=...` exposed as a virtual directory `~/kDrive-vfs/.search/{query}/` whose contents are the matching files (deferred: requires custom FUSE Lookup/Readdir interception and query-as-path escaping; delivered instead as `kdrive search` CLI).
+### Multi-drive mount — deferred (YAGNI for a single-drive setup)
+Mount multiple drives under `/mnt/kdrive/{drive_id}/` (one `KDriveFS` per drive; a top-level inode listing configured drives). Deferred: a large refactor of the single-drive assumption (`appconfig`, the di container, the mount root) for speculative value on a personal single-drive setup. Revisit if a second drive is ever added.
 
-### Multi-drive mount
-Mount multiple drives under `/mnt/kdrive/{drive_id}/`. One `KDriveFS` per drive; the top-level inode lists configured drives.
+### Document Rename/Move idempotency
+Upload and delete are idempotent on a crash re-run (a 409 reconciles to overwrite-by-id; an already-gone delete target is treated as success). Rename/Move idempotency (a second call returning 404 or success) is relied upon but not yet explicitly verified and documented — a minor hardening item.
+
+### Full-text search as a virtual directory — superseded
+The original `~/kDrive-vfs/.search/{query}/` virtual-directory idea was delivered instead as the `kdrive search` CLI (above). Not planned as a vdir.
