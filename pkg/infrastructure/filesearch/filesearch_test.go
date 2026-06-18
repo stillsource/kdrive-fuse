@@ -58,7 +58,7 @@ var _ = Describe("filesearch.Searcher", func() {
 	ctx := context.Background()
 
 	BeforeEach(func() {
-		s = filesearch.New(newTree(), 1)
+		s = filesearch.New(newTree(), 1, 0, "")
 	})
 
 	It("matches a term against names and ancestor directories, sorted by path", func() {
@@ -120,8 +120,23 @@ var _ = Describe("filesearch.Searcher", func() {
 		boom := errors.New("list failed")
 		lister := newTree()
 		lister.errs = map[int64]error{2: boom} // Photos folder errors
-		s = filesearch.New(lister, 1)
+		s = filesearch.New(lister, 1, 0, "")
 		_, err := s.Search(ctx, "report")
 		Expect(err).To(MatchError(boom))
+	})
+
+	It("scopes to a subtree and prefixes results with the subtree path", func() {
+		// Rooted at the Photos folder (id 2) with prefix "Photos": only its
+		// files are walked, and hits report full drive-root-relative paths.
+		s = filesearch.New(newTree(), 2, 0, "Photos")
+		hits, err := s.Search(ctx, "DSCF")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(hits).To(HaveLen(1))
+		Expect(hits[0].Path).To(Equal("Photos/DSCF001.JPG")) // prefix prepended
+		Expect(hits[0].ID).To(Equal(int64(20)))
+		// A file outside the subtree (root-level report.pdf) is not reachable.
+		none, err := s.Search(ctx, "report")
+		Expect(err).NotTo(HaveOccurred())
+		Expect(none).To(BeEmpty())
 	})
 })

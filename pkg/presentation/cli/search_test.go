@@ -33,10 +33,16 @@ func (f *fakeSearchBackend) Search(_ context.Context, query string) ([]service.S
 
 var _ service.Searcher = (*fakeSearchBackend)(nil)
 
-// stubSearchBackend replaces searchBackend with one that returns the given fake.
+// lastSearchPath records the pathArg the stubbed backend was called with.
+var lastSearchPath string
+
+// stubSearchBackend replaces searchBackend with one that returns the given fake
+// and records the pathArg it was called with.
 func stubSearchBackend(s service.Searcher) func() {
 	orig := searchBackend
-	searchBackend = func(context.Context, io.Writer) (service.Searcher, error) {
+	lastSearchPath = ""
+	searchBackend = func(_ context.Context, pathArg string, _ io.Writer) (service.Searcher, error) {
+		lastSearchPath = pathArg
 		return s, nil
 	}
 	return func() { searchBackend = orig }
@@ -113,9 +119,23 @@ var _ = Describe("runSearch with a fake backend", func() {
 		Expect(errb.String()).To(ContainSubstring("api down"))
 	})
 
+	It("strips --path from the query and passes it to the backend", func() {
+		fake.results["report"] = fakeSearchBackendResult{
+			hits: []service.SearchHit{{ID: 7, Path: "Docs/q3/report.pdf", Size: 1}},
+		}
+		restore := stubSearchBackend(fake)
+		defer restore()
+
+		code := runSearch([]string{"--path", "Docs/q3", "report"}, out, errb)
+
+		Expect(code).To(Equal(0))
+		Expect(lastSearchPath).To(Equal("Docs/q3")) // flag consumed, passed to backend
+		Expect(fake.calls).To(ConsistOf("report"))  // query excludes the flag
+	})
+
 	It("returns 1 when the backend fails", func() {
 		orig := searchBackend
-		searchBackend = func(context.Context, io.Writer) (service.Searcher, error) {
+		searchBackend = func(context.Context, string, io.Writer) (service.Searcher, error) {
 			return nil, errors.New("no credentials")
 		}
 		defer func() { searchBackend = orig }()
