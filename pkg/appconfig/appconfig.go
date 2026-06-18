@@ -19,17 +19,18 @@ import (
 
 // Config holds the environment knobs common to every kdrive binary.
 type Config struct {
-	APIToken       string `env:"KDRIVE_API_TOKEN,required"`
-	DriveID        string `env:"KDRIVE_DRIVE_ID,required"`
-	RootFolderID   int64  `env:"KDRIVE_ROOT_FOLDER_ID,default=1"`
-	BaseURL        string `env:"KDRIVE_BASE_URL,default=https://api.infomaniak.com/2/drive"`
-	UploadBaseURL  string `env:"KDRIVE_UPLOAD_BASE_URL,default=https://api.kdrive.infomaniak.com/2/drive"`
-	CacheTTLSecs   int    `env:"KDRIVE_CACHE_TTL_SECONDS,default=30"`
-	DiskCacheDir   string `env:"KDRIVE_DISK_CACHE_DIR,default="`
-	DiskCacheMaxGB int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
-	ReadOnly       bool   `env:"KDRIVE_READONLY,default=false"`
-	LogFormat      string `env:"KDRIVE_LOG_FORMAT,default=text"`
-	MetricsAddr    string `env:"KDRIVE_METRICS_ADDR,default="`
+	APIToken        string `env:"KDRIVE_API_TOKEN,required"`
+	DriveID         string `env:"KDRIVE_DRIVE_ID,required"`
+	RootFolderID    int64  `env:"KDRIVE_ROOT_FOLDER_ID,default=1"`
+	BaseURL         string `env:"KDRIVE_BASE_URL,default=https://api.infomaniak.com/2/drive"`
+	UploadBaseURL   string `env:"KDRIVE_UPLOAD_BASE_URL,default=https://api.kdrive.infomaniak.com/2/drive"`
+	CacheTTLSecs    int    `env:"KDRIVE_CACHE_TTL_SECONDS,default=30"`
+	DiskCacheDir    string `env:"KDRIVE_DISK_CACHE_DIR,default="`
+	DiskCacheMaxGB  int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
+	ReadOnly        bool   `env:"KDRIVE_READONLY,default=false"`
+	LogFormat       string `env:"KDRIVE_LOG_FORMAT,default=text"`
+	MetricsAddr     string `env:"KDRIVE_METRICS_ADDR,default="`
+	WalkParallelism int    `env:"KDRIVE_WALK_PARALLELISM,default=8"`
 }
 
 // Load reads the shared KDRIVE_* environment into a Config. Before reading, it

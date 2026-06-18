@@ -176,6 +176,8 @@ func (e *PushExecutor) Move(ctx context.Context, fromRel, toRel string, remoteID
 		needMove = path.Dir(fromRel) != path.Dir(toRel)
 	}
 	mutated := false
+	renamed := false
+	var renameMtime int64
 	if needMove {
 		if err := e.mover.Move(ctx, remoteID, destParent); err != nil {
 			return 0, err
@@ -183,20 +185,29 @@ func (e *PushExecutor) Move(ctx context.Context, fromRel, toRel string, remoteID
 		mutated = true
 	}
 	if cur.Name != path.Base(toRel) {
-		if _, err := e.mover.Rename(ctx, remoteID, path.Base(toRel)); err != nil {
+		info, err := e.mover.Rename(ctx, remoteID, path.Base(toRel))
+		if err != nil {
 			return 0, err
 		}
+		renamed, renameMtime = true, info.LastModifiedAt
 		mutated = true
 	}
-	if !mutated {
+	switch {
+	case !mutated:
 		// Already in the target state — cur's mtime is authoritative.
 		return cur.LastModifiedAt, nil
+	case renamed:
+		// Rename runs last and returns the file's current FileInfo, so its mtime
+		// is authoritative even when a Move preceded it — no extra Stat needed.
+		return renameMtime, nil
+	default:
+		// Only a Move ran (Move returns no body); Stat for the authoritative mtime.
+		info, err := e.stater.Stat(ctx, remoteID)
+		if err != nil {
+			return 0, err
+		}
+		return info.LastModifiedAt, nil
 	}
-	info, err := e.stater.Stat(ctx, remoteID)
-	if err != nil {
-		return 0, err
-	}
-	return info.LastModifiedAt, nil
 }
 
 func (e *PushExecutor) local(rel string) string {

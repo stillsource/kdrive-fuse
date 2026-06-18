@@ -44,6 +44,7 @@ type recordingFiles struct {
 	statErr          map[int64]error           // when set for an id, Stat returns this error
 	content          map[int64][]byte          // file content by id (for DownloadStream)
 	mtimeAfterMove   int64                     // when >0, Move/Rename set the file's LastModifiedAt to this (server touches mtime on metadata change)
+	statCount        int                       // number of Stat calls (asserts the rename path skips the trailing Stat)
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
@@ -91,6 +92,7 @@ func (r *recordingFiles) Upload(_ context.Context, in service.UploadInput) (doma
 func (r *recordingFiles) Stat(_ context.Context, fileID int64) (domain.FileInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.statCount++
 	if err, ok := r.statErr[fileID]; ok {
 		return domain.FileInfo{}, err
 	}
@@ -299,6 +301,7 @@ var _ = Describe("PushExecutor", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(files.moved).To(BeEmpty())                                      // already under sub -> Move skipped
 			Expect(files.renamed).To(Equal([]renameCall{{id: 42, name: "b.jpg"}})) // only the Rename ran
+			Expect(files.statCount).To(Equal(1))                                   // rename returns the mtime -> no trailing Stat
 		})
 
 		It("still issues the Move when parent_id is absent, and returns the post-mutation mtime", func() {
@@ -313,6 +316,7 @@ var _ = Describe("PushExecutor", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(files.moved).To(Equal([][2]int64{{42, 50}})) // fell back to issuing the Move
 			Expect(mtime).To(Equal(int64(5555)))                // re-Stat after mutating, not stale 1234
+			Expect(files.statCount).To(Equal(2))                // move-only path needs the trailing Stat
 		})
 
 		It("corrects an out-of-band relocation: same-dir rename intent, but the file drifted to another parent", func() {
@@ -327,6 +331,7 @@ var _ = Describe("PushExecutor", func() {
 			Expect(err).NotTo(HaveOccurred())
 			Expect(files.moved).To(Equal([][2]int64{{42, 1}}))                     // moved back to root (id 1)
 			Expect(files.renamed).To(Equal([]renameCall{{id: 42, name: "b.jpg"}})) // and renamed
+			Expect(files.statCount).To(Equal(1))                                   // move+rename: rename's mtime used, no trailing Stat
 		})
 
 		It("is a no-op for a same-dir rename re-run already at the target name", func() {

@@ -27,17 +27,40 @@ type Lister interface {
 	List(ctx context.Context, folderID int64) ([]domain.FileInfo, error)
 }
 
-// defaultParallelism bounds the number of concurrent List calls during Build.
+// defaultParallelism bounds the number of concurrent List calls during Build
+// when no WithParallelism option overrides it.
 const defaultParallelism = 8
+
+// buildConfig holds Build's tunables.
+type buildConfig struct{ parallelism int }
+
+// Option configures Build.
+type Option func(*buildConfig)
+
+// WithParallelism bounds the number of concurrent List calls during Build. A
+// value <= 0 keeps the default (defaultParallelism), so callers can thread an
+// unset config field straight through without a special case.
+func WithParallelism(n int) Option {
+	return func(c *buildConfig) {
+		if n > 0 {
+			c.parallelism = n
+		}
+	}
+}
 
 // Build walks the folder tree rooted at rootID and returns a map from each
 // file's path (relative to the root, slash-separated) to its Entry. Directories
 // are traversed but not themselves recorded. Listings run concurrently, bounded
-// to defaultParallelism in-flight calls.
-func Build(ctx context.Context, l Lister, rootID int64) (map[string]Entry, error) {
+// to the configured parallelism (defaultParallelism unless WithParallelism is
+// given).
+func Build(ctx context.Context, l Lister, rootID int64, opts ...Option) (map[string]Entry, error) {
+	cfg := buildConfig{parallelism: defaultParallelism}
+	for _, o := range opts {
+		o(&cfg)
+	}
 	idx := make(map[string]Entry)
 	var mu sync.Mutex
-	sem := make(chan struct{}, defaultParallelism)
+	sem := make(chan struct{}, cfg.parallelism)
 
 	g, ctx := errgroup.WithContext(ctx)
 	var walk func(folderID int64, prefix string)

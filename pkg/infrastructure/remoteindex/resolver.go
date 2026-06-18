@@ -3,10 +3,43 @@ package remoteindex
 import (
 	"context"
 	"path"
+	"strings"
 	"sync"
+
+	scerr "github.com/scality/go-errors"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 )
+
+// ResolveDir resolves relDir (slash-separated, relative to rootID) to its folder
+// id WITHOUT creating anything — the read-only counterpart to Resolver.Resolve,
+// for callers that must not mutate the drive (e.g. scoping a search to a
+// subtree). An empty, "." or "/" relDir resolves to rootID. It returns
+// domain.ErrNotFound if a path segment is missing or names a non-directory.
+func ResolveDir(ctx context.Context, l Lister, rootID int64, relDir string) (int64, error) {
+	clean := strings.Trim(path.Clean(relDir), "/")
+	if clean == "" || clean == "." {
+		return rootID, nil
+	}
+	id := rootID
+	for _, seg := range strings.Split(clean, "/") {
+		children, err := l.List(ctx, id)
+		if err != nil {
+			return 0, err
+		}
+		found := false
+		for _, c := range children {
+			if c.IsDir() && c.Name == seg {
+				id, found = c.ID, true
+				break
+			}
+		}
+		if !found {
+			return 0, scerr.Wrap(domain.ErrNotFound, scerr.WithDetailf("remoteindex: directory %q not found", relDir))
+		}
+	}
+	return id, nil
+}
 
 // Mkdirer creates a directory under a parent folder.
 type Mkdirer interface {
