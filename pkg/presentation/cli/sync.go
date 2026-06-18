@@ -37,6 +37,7 @@ Flags:
   --dry-run     classify and print the plan; change nothing
   --no-delete   never delete on the destination
   --force       override the deletion guard (and, on pull, the local-drift guard)
+  --delete-threshold F  refuse to delete more than fraction F of the baseline (default 0.20)
   --assume-new  (push only) skip the first-run bootstrap; treat every local file as new
   --refresh     (push only) re-bootstrap the manifest from a fresh remote index
   --verify      after the run, report local vs remote presence + size differences
@@ -49,6 +50,7 @@ type syncOptions struct {
 	local, remote                                             string
 	pull, dryRun, noDelete, force, assumeNew, verify, refresh bool
 	jobs                                                      int
+	deleteThreshold                                           float64
 }
 
 // parseSyncFlags parses the arguments after "sync". It returns flag.ErrHelp when
@@ -66,8 +68,12 @@ func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	fs.BoolVar(&o.verify, "verify", false, "")
 	fs.BoolVar(&o.refresh, "refresh", false, "")
 	fs.IntVar(&o.jobs, "jobs", 8, "")
+	fs.Float64Var(&o.deleteThreshold, "delete-threshold", 0.20, "")
 	if err := fs.Parse(args); err != nil {
 		return o, err
+	}
+	if o.deleteThreshold <= 0 || o.deleteThreshold > 1 {
+		return o, fmt.Errorf("delete-threshold must be in (0, 1], got %g", o.deleteThreshold)
 	}
 	rest := fs.Args()
 	if len(rest) > 2 {
@@ -113,11 +119,12 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 
 	if opts.pull {
 		res, err := syncer.Pull(ctx, syncer.PullOptions{
-			LocalRoot: local,
-			Jobs:      opts.jobs,
-			Force:     opts.force,
-			DryRun:    opts.dryRun,
-			NoDelete:  opts.noDelete,
+			LocalRoot:       local,
+			Jobs:            opts.jobs,
+			Force:           opts.force,
+			DryRun:          opts.dryRun,
+			NoDelete:        opts.noDelete,
+			DeleteThreshold: opts.deleteThreshold,
 		}, files, rootID, mpath, stdout)
 		if err != nil {
 			_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)
@@ -137,13 +144,14 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 	}
 
 	res, err := syncer.Push(ctx, syncer.PushOptions{
-		LocalRoot: local,
-		Jobs:      opts.jobs,
-		Force:     opts.force,
-		DryRun:    opts.dryRun,
-		NoDelete:  opts.noDelete,
-		AssumeNew: opts.assumeNew,
-		Refresh:   opts.refresh,
+		LocalRoot:       local,
+		Jobs:            opts.jobs,
+		Force:           opts.force,
+		DryRun:          opts.dryRun,
+		NoDelete:        opts.noDelete,
+		AssumeNew:       opts.assumeNew,
+		Refresh:         opts.refresh,
+		DeleteThreshold: opts.deleteThreshold,
 	}, files, rootID, mpath, stdout)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "kdrive sync: %v\n", err)

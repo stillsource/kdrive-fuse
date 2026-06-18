@@ -17,18 +17,23 @@ var _ = Describe("GuardPullDeletes", func() {
 	}
 
 	It("passes when local deletes are at or under 20% of the baseline", func() {
-		Expect(syncer.GuardPullDeletes(dels(2), 10, false)).To(Succeed())
+		Expect(syncer.GuardPullDeletes(dels(2), 10, 0.20, false)).To(Succeed())
 	})
 
 	It("fails when local deletes exceed 20% of the baseline", func() {
-		Expect(syncer.GuardPullDeletes(dels(3), 10, false)).To(HaveOccurred())
+		Expect(syncer.GuardPullDeletes(dels(3), 10, 0.20, false)).To(HaveOccurred())
 	})
 
 	It("passes when forced", func() {
-		Expect(syncer.GuardPullDeletes(dels(9), 10, true)).To(Succeed())
+		Expect(syncer.GuardPullDeletes(dels(9), 10, 0.20, true)).To(Succeed())
 	})
 
 	It("passes with an empty baseline", func() {
-		Expect(syncer.GuardPullDeletes(dels(5), 0, false)).To(Succeed())
+		Expect(syncer.GuardPullDeletes(dels(5), 0, 0.20, false)).To(Succeed())
+	})
+
+	It("honors a custom threshold: 3/10 passes at 30% but 4/10 fails", func() {
+		Expect(syncer.GuardPullDeletes(dels(3), 10, 0.30, false)).To(Succeed())
+		Expect(syncer.GuardPullDeletes(dels(4), 10, 0.30, false)).To(HaveOccurred())
 	})
 })

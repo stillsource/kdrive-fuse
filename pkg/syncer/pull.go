@@ -27,11 +27,12 @@ type Remote interface {
 
 // PullOptions configures a pull run.
 type PullOptions struct {
-	LocalRoot string
-	Jobs      int
-	Force     bool
-	DryRun    bool
-	NoDelete  bool
+	LocalRoot       string
+	Jobs            int
+	Force           bool
+	DryRun          bool
+	NoDelete        bool
+	DeleteThreshold float64 // fraction of baseline; default 0.20 when zero
 }
 
 // Pull mirrors the remote folder rootID onto opts.LocalRoot, using the manifest
@@ -63,7 +64,7 @@ func Pull(ctx context.Context, opts PullOptions, files PullPort, rootID int64, m
 	if opts.NoDelete {
 		items = dropPullDeletes(items)
 	}
-	if err := GuardPullDeletes(items, m.Len(), opts.Force); err != nil {
+	if err := GuardPullDeletes(items, m.Len(), opts.DeleteThreshold, opts.Force); err != nil {
 		return PullResult{}, err
 	}
 	if opts.DryRun {
