@@ -59,12 +59,12 @@ Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infras
 ### Upload conflict handling
 `UploadInput.Conflict` selects the conflict mode for new uploads: `""` (default) → `conflict=error`; `"version"` → keep existing as a prior version; `"rename"` → append ` (1)` to the name. The field is ignored in edit mode (uses `file_id`). The FUSE `writeHandle` sets `Conflict: "rename"` for new-file creates so `cp` of a duplicate filename produces the familiar `foo (1).txt` behavior instead of failing. The sync path leaves `Conflict` empty (defaults to `error`) so the conflict-reconciliation logic in `PushExecutor.Upload` (detect `ErrConflict` → overwrite by id) still works correctly. Applies to both single-shot and chunked upload paths.
 
+### `kdrive share REMOTE_PATH` CLI
+`kdrive share` resolves a remote path to its file ID (read-only listing, never creates directories), calls `usecase.ShareFile` which wraps `client.Shares.Publish`, and prints the public URL to stdout. Useful for scripts. Wired in `pkg/presentation/cli/share.go`.
+
 ---
 
 ## UX
-
-### `kdshare <path>` CLI
-A small binary (or subcommand) that prints the public share URL for a file in the mounted tree. Wraps `client.Shares.Publish`. Useful for scripts.
 
 ### `.trash/` virtual directory
 Expose the kDrive trash as `~/kDrive-vfs/.trash/` via `GET /files/trash`. `rm .trash/x` purges permanently, `mv .trash/x /target/` restores. Needs a dedicated trash endpoint family in the API.
