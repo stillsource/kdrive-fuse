@@ -91,6 +91,9 @@ Delivered as a `kdrive trash` CLI subcommand rather than a FUSE virtual `.trash/
 ### Structured JSON logs (`KDRIVE_LOG_FORMAT`)
 `KDRIVE_LOG_FORMAT=json` switches the daemon and the CLI client logger to `slog.NewJSONHandler` (jq-friendly); default `text` keeps `journalctl` human-readable. Standard-library `log/slog` only — no logging dependency.
 
+### `.env` auto-load (`KDRIVE_ENV_FILE`)
+`appconfig.Load` auto-loads a `.env` file before reading the environment: the working-directory `.env`, or the path in `KDRIVE_ENV_FILE`. So `cp .env.example .env` + `kdrive sync` works with no `source`/`export`. Implemented zero-dependency — a tiny stdlib parser (`pkg/appconfig/dotenv.go`, systemd `EnvironmentFile` style: `KEY=VALUE`, `#`-comment and blank lines, optional `export`/surrounding quotes, values literal) feeds `go-envconfig`'s `MultiLookuper(OsLookuper(), MapLookuper(fileVars))`, so **real environment variables always win over the file** (an explicit `KDRIVE_X=… kdrive …` or systemd `EnvironmentFile=` still overrides it). A missing default `.env` is a no-op; a missing explicit `KDRIVE_ENV_FILE` is an error. No `godotenv` dependency — `go-envconfig` already composes lookupers.
+
 ### `kdrive search TERM...` CLI (client-side filename filter)
 Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.search/` directory (to avoid custom Lookup/Readdir interception and query-as-path escaping). A file matches when its path (folders + name) contains **all** whitespace-separated terms, case-insensitively (a literal substring filter, not full-text content search). Prints one tab-separated line per match — `id`, path, size — sorted by path; ids are scriptable (pipe to `kdrive share` / `kdrive trash`). Empty query exits 2 with usage; zero results print "no matches".
 

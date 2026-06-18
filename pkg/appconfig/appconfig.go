@@ -32,9 +32,17 @@ type Config struct {
 	MetricsAddr    string `env:"KDRIVE_METRICS_ADDR,default="`
 }
 
-// Load reads the shared KDRIVE_* environment into a Config.
+// Load reads the shared KDRIVE_* environment into a Config. Before reading, it
+// auto-loads a .env file (the working-directory ".env", or the path in
+// KDRIVE_ENV_FILE) if present; real environment variables always take
+// precedence over the file. A real .env (secrets) must never be committed —
+// see .env.example and .gitignore.
 func Load(ctx context.Context) (*Config, error) {
-	return load(ctx, envconfig.OsLookuper())
+	fileVars, err := dotEnvVars()
+	if err != nil {
+		return nil, fmt.Errorf("appconfig: %w", err)
+	}
+	return load(ctx, lookuperFor(fileVars))
 }
 
 // load is the testable core: it reads from an explicit Lookuper.
