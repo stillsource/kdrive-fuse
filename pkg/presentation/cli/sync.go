@@ -40,6 +40,7 @@ Flags:
   --delete-threshold F  refuse to delete more than fraction F of the baseline (default 0.20)
   --assume-new  (push only) skip the first-run bootstrap; treat every local file as new
   --refresh     (push only) re-bootstrap the manifest from a fresh remote index
+  --detect-moves  treat a delete+add of a same-size, same-mtime file as a server-side move instead of a re-upload (heuristic; off by default)
   --verify      after the run, report local vs remote presence + size differences
   --jobs N      concurrent transfers (default 8)
   -h, --help    show this help
@@ -47,10 +48,10 @@ Flags:
 
 // syncOptions is the parsed command line for "kdrive sync".
 type syncOptions struct {
-	local, remote                                             string
-	pull, dryRun, noDelete, force, assumeNew, verify, refresh bool
-	jobs                                                      int
-	deleteThreshold                                           float64
+	local, remote                                                          string
+	pull, dryRun, noDelete, force, assumeNew, verify, refresh, detectMoves bool
+	jobs                                                                   int
+	deleteThreshold                                                        float64
 }
 
 // parseSyncFlags parses the arguments after "sync". It returns flag.ErrHelp when
@@ -67,6 +68,7 @@ func parseSyncFlags(args []string, stderr io.Writer) (syncOptions, error) {
 	fs.BoolVar(&o.assumeNew, "assume-new", false, "")
 	fs.BoolVar(&o.verify, "verify", false, "")
 	fs.BoolVar(&o.refresh, "refresh", false, "")
+	fs.BoolVar(&o.detectMoves, "detect-moves", false, "")
 	fs.IntVar(&o.jobs, "jobs", 8, "")
 	fs.Float64Var(&o.deleteThreshold, "delete-threshold", 0.20, "")
 	if err := fs.Parse(args); err != nil {
@@ -151,6 +153,7 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		NoDelete:        opts.noDelete,
 		AssumeNew:       opts.assumeNew,
 		Refresh:         opts.refresh,
+		DetectMoves:     opts.detectMoves,
 		DeleteThreshold: opts.deleteThreshold,
 	}, files, rootID, mpath, stdout)
 	if err != nil {
@@ -158,8 +161,8 @@ func runSync(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 	if !opts.dryRun {
-		_, _ = fmt.Fprintf(stdout, "synced: %d uploaded, %d overwritten, %d deleted, %d failed\n",
-			res.Uploaded, res.Overwritten, res.Deleted, res.Failed)
+		_, _ = fmt.Fprintf(stdout, "synced: %d uploaded, %d overwritten, %d moved, %d deleted, %d failed\n",
+			res.Uploaded, res.Overwritten, res.Moved, res.Deleted, res.Failed)
 		if opts.verify {
 			runVerify(ctx, local, files, rootID, stdout, stderr)
 		}

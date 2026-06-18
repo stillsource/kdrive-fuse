@@ -17,6 +17,12 @@ import (
 	"github.com/stillsource/kdrive-fuse/pkg/syncer"
 )
 
+// renameCall records one Rename invocation.
+type renameCall struct {
+	id   int64
+	name string
+}
+
 // recordingFiles implements remoteindex.Lister, remoteindex.Mkdirer and
 // service.FileWriter/FileManager for executor and push tests.
 type recordingFiles struct {
@@ -25,7 +31,10 @@ type recordingFiles struct {
 	nextID           int64
 	uploads          []service.UploadInput
 	deleted          []int64
+	moved            [][2]int64                // {fileID, destDirID} per Move call
+	renamed          []renameCall              // per Rename call
 	failUpload       map[string]bool           // upload of these names returns an error
+	failRename       map[int64]bool            // Rename of these ids returns an error
 	conflictOnNew    map[string]bool           // a NEW upload (no ExistingFileID) of these names returns ErrConflict
 	notFoundOnDelete map[int64]bool            // Delete of these ids returns domain.ErrNotFound
 	listErr          error                     // when set, List returns this error
@@ -106,6 +115,28 @@ func (r *recordingFiles) Delete(_ context.Context, fileID int64) error {
 	return nil
 }
 
+func (r *recordingFiles) Move(_ context.Context, fileID, destDirID int64) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.moved = append(r.moved, [2]int64{fileID, destDirID})
+	return nil
+}
+
+func (r *recordingFiles) Rename(_ context.Context, fileID int64, newName string) (domain.FileInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.failRename[fileID] {
+		return domain.FileInfo{}, errors.New("rename failed")
+	}
+	r.renamed = append(r.renamed, renameCall{id: fileID, name: newName})
+	if info, ok := r.byID[fileID]; ok {
+		info.Name = newName
+		r.byID[fileID] = info
+		return info, nil
+	}
+	return domain.FileInfo{ID: fileID, Name: newName}, nil
+}
+
 var _ = Describe("PushExecutor", func() {
 	var (
 		root  string
@@ -116,7 +147,7 @@ var _ = Describe("PushExecutor", func() {
 		root = GinkgoT().TempDir()
 		files = &recordingFiles{folders: map[int64][]domain.FileInfo{}}
 		resolver := remoteindex.NewResolver(files, files, 1)
-		ex = syncer.NewPushExecutor(root, resolver, files, files, files)
+		ex = syncer.NewPushExecutor(root, resolver, files, files, files, files, files)
 	})
 	writeLocal := func(rel, data string) {
 		p := filepath.Join(root, filepath.FromSlash(rel))
