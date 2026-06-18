@@ -59,7 +59,7 @@ kdrive-fuse
 
 Or copy [`.env.example`](./.env.example) to `.env`, fill it in, and load it with `set -a; source .env; set +a` before running — `.env` is gitignored, so your token never lands in the repo.
 
-Run it as a systemd user service to auto-mount at login — see the example unit [`docs/kdrive-vfs.service`](./docs/kdrive-vfs.service).
+Run it as a systemd user service to auto-mount at login — see the example unit [`examples/kdrive-vfs.service`](./examples/kdrive-vfs.service).
 
 ## CLI / sync
 
@@ -135,7 +135,7 @@ In-place rewrites through the mount (`echo > existing`, truncating edits) are co
 
 Files and directories are owned by the user who mounted the filesystem (kDrive has no POSIX ownership of its own). Without this they would default to `root`, and a file manager like Nautilus — which decides "can delete / can trash" from write access to the parent directory — would refuse to delete or edit them.
 
-See [`ROADMAP.md`](./ROADMAP.md) for planned work.
+See [`ROADMAP.md`](./ROADMAP.md) for planned work, and [`docs/adr/`](./docs/adr/) for the architecture decisions behind the design.
 
 ## Development
 

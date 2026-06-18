@@ -9,3 +9,9 @@ coverage.html
 *.swp
 .DS_Store
 dist/
+
+# Disposable scaffolding — implementation plans and skill-generated specs live
+# locally / in the author's notes, not in the published repo. Durable decisions
+# are recorded as ADRs under docs/adr/ instead.
+docs/plans/
+docs/superpowers/
