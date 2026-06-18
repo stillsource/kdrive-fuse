@@ -25,10 +25,12 @@ type recordingFiles struct {
 	nextID           int64
 	uploads          []service.UploadInput
 	deleted          []int64
-	failUpload       map[string]bool // upload of these names returns an error
-	conflictOnNew    map[string]bool // a NEW upload (no ExistingFileID) of these names returns ErrConflict
-	notFoundOnDelete map[int64]bool  // Delete of these ids returns domain.ErrNotFound
-	listErr          error           // when set, List returns this error
+	failUpload       map[string]bool           // upload of these names returns an error
+	conflictOnNew    map[string]bool           // a NEW upload (no ExistingFileID) of these names returns ErrConflict
+	notFoundOnDelete map[int64]bool            // Delete of these ids returns domain.ErrNotFound
+	listErr          error                     // when set, List returns this error
+	byID             map[int64]domain.FileInfo // current remote state by id (for Stat)
+	statErr          map[int64]error           // when set for an id, Stat returns this error
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
@@ -61,7 +63,36 @@ func (r *recordingFiles) Upload(_ context.Context, in service.UploadInput) (doma
 	}
 	r.uploads = append(r.uploads, in)
 	r.nextID++
-	return domain.FileInfo{ID: 3000 + r.nextID, Name: in.Name, Size: int64(len(body)), LastModifiedAt: 4242}, nil
+	id := int64(3000) + r.nextID
+	if in.ExistingFileID != 0 {
+		id = in.ExistingFileID
+	}
+	info := domain.FileInfo{ID: id, Name: in.Name, Size: int64(len(body)), LastModifiedAt: 4242}
+	if r.byID == nil {
+		r.byID = map[int64]domain.FileInfo{}
+	}
+	r.byID[id] = info
+	return info, nil
+}
+
+func (r *recordingFiles) Stat(_ context.Context, fileID int64) (domain.FileInfo, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if err, ok := r.statErr[fileID]; ok {
+		return domain.FileInfo{}, err
+	}
+	if info, ok := r.byID[fileID]; ok {
+		return info, nil
+	}
+	// Fall back to scanning folders (for files pre-seeded before any Upload call).
+	for _, children := range r.folders {
+		for _, info := range children {
+			if info.ID == fileID {
+				return info, nil
+			}
+		}
+	}
+	return domain.FileInfo{}, domain.ErrNotFound
 }
 
 func (r *recordingFiles) Delete(_ context.Context, fileID int64) error {
@@ -70,6 +101,7 @@ func (r *recordingFiles) Delete(_ context.Context, fileID int64) error {
 	if r.notFoundOnDelete[fileID] {
 		return domain.ErrNotFound
 	}
+	delete(r.byID, fileID)
 	r.deleted = append(r.deleted, fileID)
 	return nil
 }

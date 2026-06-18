@@ -2,6 +2,7 @@ package syncer_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -115,5 +116,126 @@ var _ = Describe("Push", func() {
 		}, files, 1, mpath, &strings.Builder{})
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("walk"))
+	})
+
+	bumpRemoteMtime := func(name string, mtime int64) {
+		for id, info := range files.byID {
+			if info.Name == name {
+				info.LastModifiedAt = mtime
+				files.byID[id] = info
+			}
+		}
+	}
+	removeRemote := func(name string) {
+		for id, info := range files.byID {
+			if info.Name == name {
+				delete(files.byID, id)
+			}
+		}
+	}
+	failStat := func(name string, err error) {
+		for id, info := range files.byID {
+			if info.Name == name {
+				if files.statErr == nil {
+					files.statErr = map[int64]error{}
+				}
+				files.statErr[id] = err
+			}
+		}
+	}
+
+	It("skips an overwrite when the remote changed out-of-band, and warns", func() {
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		bumpRemoteMtime("a.jpg", 9999) // out-of-band edit
+		writeLocal("a.jpg", "changed") // local edit -> would overwrite
+		files.uploads = nil
+		var out strings.Builder
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Overwritten).To(Equal(0))
+		Expect(files.uploads).To(BeEmpty()) // nothing clobbered
+		Expect(out.String()).To(ContainSubstring("skip (remote changed): a.jpg"))
+	})
+
+	It("--force overrides push drift and overwrites anyway", func() {
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		bumpRemoteMtime("a.jpg", 9999)
+		writeLocal("a.jpg", "changed")
+		files.uploads = nil
+		o := opts()
+		o.Force = true
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Overwritten).To(Equal(1))
+	})
+
+	It("skips a delete when the remote changed out-of-band", func() {
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		bumpRemoteMtime("a.jpg", 9999)
+		Expect(os.Remove(filepath.Join(root, "a.jpg"))).To(Succeed()) // local delete -> would delete remote
+		var out strings.Builder
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Deleted).To(Equal(0))
+		Expect(files.deleted).To(BeEmpty())
+		Expect(out.String()).To(ContainSubstring("skip (remote changed): a.jpg"))
+	})
+
+	It("overwrites normally when the remote matches the manifest (no drift)", func() {
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		writeLocal("a.jpg", "changed") // local edit only; remote untouched
+		files.uploads = nil
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Overwritten).To(Equal(1)) // no drift -> proceeds
+	})
+
+	It("skips a remote-gone overwrite and warns to re-upload", func() {
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		removeRemote("a.jpg")          // remote vanished out-of-band
+		writeLocal("a.jpg", "changed") // local edit -> would overwrite
+		files.uploads = nil
+		var out strings.Builder
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Overwritten).To(Equal(0))
+		Expect(files.uploads).To(BeEmpty())
+		Expect(out.String()).To(ContainSubstring("skip (remote gone"))
+	})
+
+	It("aborts the push on an unexpected stat error", func() {
+		writeLocal("a.jpg", "aaa")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		failStat("a.jpg", errors.New("stat boom"))
+		writeLocal("a.jpg", "changed")
+		_, err = syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).To(MatchError(ContainSubstring("stat boom")))
+	})
+
+	It("skips only the drifted item in a mixed plan", func() {
+		writeLocal("a.jpg", "aaa")
+		writeLocal("b.jpg", "bbb")
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		bumpRemoteMtime("a.jpg", 9999) // a drifted; b clean
+		writeLocal("a.jpg", "changed")
+		writeLocal("b.jpg", "changed")
+		files.uploads = nil
+		var out strings.Builder
+		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &out)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Overwritten).To(Equal(1)) // only b
+		Expect(out.String()).To(ContainSubstring("skip (remote changed): a.jpg"))
 	})
 })
