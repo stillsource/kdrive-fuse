@@ -217,6 +217,38 @@ var _ = Describe("DirNode via FUSE mount — mutating paths", func() {
 		Expect(fx.Fake.GetUploadCalls()[0].ExistingFileID).To(Equal(int64(0)))
 	})
 
+	It("Create (new file) commits UploadInput with Conflict 'rename'", func() {
+		fake := baseFake()
+		fake.UploadStub = func(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
+			return domain.FileInfo{ID: 55, Name: in.Name, Size: in.Size, Type: domain.FileTypeFile}, nil
+		}
+		fx := newMountFixture(fake)
+		Expect(os.WriteFile(
+			filepath.Join(fx.Dir, "conflict-test.txt"),
+			[]byte("data"), 0o644,
+		)).To(Succeed())
+		calls := fx.Fake.GetUploadCalls()
+		Expect(calls).To(HaveLen(1))
+		Expect(calls[0].ExistingFileID).To(Equal(int64(0)))
+		Expect(calls[0].Conflict).To(Equal("rename"))
+	})
+
+	It("Edit (existing file) commits UploadInput with Conflict ''", func() {
+		fake := baseFake()
+		fake.UploadStub = func(_ context.Context, in service.UploadInput) (domain.FileInfo, error) {
+			return domain.FileInfo{ID: 10, Name: in.Name, Size: in.Size, Type: domain.FileTypeFile}, nil
+		}
+		fx := newMountFixture(fake)
+		Expect(os.WriteFile(
+			filepath.Join(fx.Dir, "hello.txt"),
+			[]byte("edited"), 0o644,
+		)).To(Succeed())
+		calls := fx.Fake.GetUploadCalls()
+		Expect(calls).To(HaveLen(1))
+		Expect(calls[0].ExistingFileID).To(Equal(int64(10)))
+		Expect(calls[0].Conflict).To(Equal(""))
+	})
+
 	It("does not upload a file created and closed without writing (no 0-byte placeholder)", func() {
 		fx := newMountFixture(baseFake())
 		f, err := os.Create(filepath.Join(fx.Dir, "placeholder.txt"))

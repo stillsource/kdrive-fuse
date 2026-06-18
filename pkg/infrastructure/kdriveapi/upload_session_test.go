@@ -106,6 +106,129 @@ var _ = Describe("FilesService.Upload — chunked session", func() {
 		Expect(finishBody["total_chunks"]).To(BeEquivalentTo(3)) // JSON number
 	})
 
+	It("sends conflict=rename in start body when Conflict is 'rename'", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		var mu sync.Mutex
+		var startBody map[string]any
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = json.Unmarshal(readBody(r), &startBody)
+			writeJSON(w, http.StatusOK, `{"data":{"token":"SESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"id":60,"name":"r.bin","type":"file"}}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7,
+			Name:     "r.bin",
+			Body:     bytes.NewReader([]byte("0123456789")),
+			Size:     10,
+			Conflict: "rename",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(startBody["conflict"]).To(Equal("rename"))
+	})
+
+	It("sends conflict=version in start body when Conflict is 'version'", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		var mu sync.Mutex
+		var startBody map[string]any
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = json.Unmarshal(readBody(r), &startBody)
+			writeJSON(w, http.StatusOK, `{"data":{"token":"SESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"id":61,"name":"v.bin","type":"file"}}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7,
+			Name:     "v.bin",
+			Body:     bytes.NewReader([]byte("0123456789")),
+			Size:     10,
+			Conflict: "version",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(startBody["conflict"]).To(Equal("version"))
+	})
+
+	It("falls back to conflict=error in start body for unrecognized Conflict value", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		var mu sync.Mutex
+		var startBody map[string]any
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = json.Unmarshal(readBody(r), &startBody)
+			writeJSON(w, http.StatusOK, `{"data":{"token":"SESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"id":62,"name":"b.bin","type":"file"}}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7,
+			Name:     "b.bin",
+			Body:     bytes.NewReader([]byte("0123456789")),
+			Size:     10,
+			Conflict: "bogus",
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(startBody["conflict"]).To(Equal("error"))
+	})
+
+	It("Conflict is ignored in chunked edit mode (no conflict key in start body)", func() {
+		withSmallChunks(4, 8)
+		fx := newTestFixture()
+		DeferCleanup(fx.Server.Close)
+
+		var mu sync.Mutex
+		var startBody map[string]any
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			defer mu.Unlock()
+			_ = json.Unmarshal(readBody(r), &startBody)
+			writeJSON(w, http.StatusOK, `{"data":{"token":"SESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"id":50,"name":"x"}}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ExistingFileID: 321,
+			Body:           bytes.NewReader([]byte("0123456789")),
+			Size:           10,
+			Conflict:       "rename", // must be ignored
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(startBody).NotTo(HaveKey("conflict"))
+	})
+
 	It("start carries file_id in edit mode (no file_name/directory_id/conflict)", func() {
 		withSmallChunks(4, 8)
 		fx := newTestFixture()

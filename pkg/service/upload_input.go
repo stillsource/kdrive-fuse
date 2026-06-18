@@ -15,4 +15,8 @@ type UploadInput struct {
 	Name           string
 	Body           io.ReadSeeker
 	Size           int64
+	// Conflict selects the upload conflict mode for a NEW file (ignored in edit
+	// mode). "" defaults to "error" (fail on a duplicate name); "version" keeps
+	// the existing file as a prior version; "rename" appends " (1)" to the name.
+	Conflict string
 }

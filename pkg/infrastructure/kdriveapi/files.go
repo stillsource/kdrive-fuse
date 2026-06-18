@@ -107,6 +107,17 @@ func (s *FilesService) DownloadStream(ctx context.Context, fileID, off, length i
 	return resp.Body, nil
 }
 
+// conflictMode returns a valid kDrive upload conflict value, defaulting to
+// "error" for empty or unrecognized input.
+func conflictMode(c string) string {
+	switch c {
+	case "version", "rename":
+		return c
+	default:
+		return "error"
+	}
+}
+
 // Upload sends the content of in.Body as a kDrive file using the single-shot
 // upload endpoint. If in.ExistingFileID > 0, replaces that file's content;
 // otherwise creates a new file named in.Name in in.ParentID.
@@ -162,7 +173,7 @@ func (s *FilesService) Upload(ctx context.Context, in service.UploadInput) (doma
 		q.Set("file_name", in.Name)
 		q.Set("directory_id", strconv.FormatInt(in.ParentID, 10))
 		q.Set("created_at", now)
-		q.Set("conflict", "error")
+		q.Set("conflict", conflictMode(in.Conflict))
 	}
 
 	endpoint := "/upload?" + q.Encode()
