@@ -98,7 +98,7 @@ var _ = Describe("RunPull", func() {
 			{Rel: "gone.jpg", Op: syncer.PullDeleteLocal},
 		}
 		actor := &fakePullActor{fail: map[string]bool{}}
-		res := syncer.RunPull(context.Background(), items, actor, m, 4)
+		res := syncer.RunPull(context.Background(), items, actor, m, 4, nil)
 		Expect(res.Downloaded).To(Equal(1))
 		Expect(res.Deleted).To(Equal(1))
 		Expect(res.Failed).To(Equal(0))
@@ -113,7 +113,7 @@ var _ = Describe("RunPull", func() {
 		m := manifest.New()
 		items := []syncer.PullItem{{Rel: "x.jpg", Op: syncer.PullDownload, RemoteID: 7}}
 		actor := &fakePullActor{fail: map[string]bool{"x.jpg": true}}
-		res := syncer.RunPull(context.Background(), items, actor, m, 2)
+		res := syncer.RunPull(context.Background(), items, actor, m, 2, nil)
 		Expect(res.Failed).To(Equal(1))
 		_, present := m.Get("x.jpg")
 		Expect(present).To(BeFalse())
@@ -121,6 +121,20 @@ var _ = Describe("RunPull", func() {
 
 	It("handles an empty plan", func() {
 		m := manifest.New()
-		Expect(syncer.RunPull(context.Background(), nil, &fakePullActor{fail: map[string]bool{}}, m, 4)).To(Equal(syncer.PullResult{}))
+		Expect(syncer.RunPull(context.Background(), nil, &fakePullActor{fail: map[string]bool{}}, m, 4, nil)).To(Equal(syncer.PullResult{}))
+	})
+
+	It("checkpoints the manifest every 64 successful ops", func() {
+		m := manifest.New()
+		var items []syncer.PullItem
+		for i := 0; i < 130; i++ {
+			items = append(items, syncer.PullItem{Rel: relName(i), Op: syncer.PullDownload, RemoteID: int64(i + 1)})
+		}
+		var lens []int
+		res := syncer.RunPull(context.Background(), items, &fakePullActor{fail: map[string]bool{}}, m, 8, func() {
+			lens = append(lens, m.Len())
+		})
+		Expect(res.Downloaded).To(Equal(130))
+		Expect(lens).To(Equal([]int{64, 128}))
 	})
 })

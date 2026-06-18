@@ -152,7 +152,7 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 		m := manifest.New()
 		actor := &fakePullActor{fail: map[string]bool{}}
 		items := []syncer.PullItem{{Rel: "a", Op: syncer.PullDownload, RemoteID: 1}}
-		res := syncer.RunPull(ctx, items, actor, m, 2)
+		res := syncer.RunPull(ctx, items, actor, m, 2, nil)
 		Expect(res.Failed).To(Equal(1))
 		Expect(res.Downloaded).To(Equal(0))
 		Expect(actor.downloads).To(BeEmpty())
@@ -168,7 +168,7 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 	It("RunPull clamps jobs<1 to 1 and still processes items (L1)", func() {
 		m := manifest.New()
 		actor := &fakePullActor{fail: map[string]bool{}}
-		res := syncer.RunPull(context.Background(), []syncer.PullItem{{Rel: "a", Op: syncer.PullDeleteLocal}}, actor, m, 0)
+		res := syncer.RunPull(context.Background(), []syncer.PullItem{{Rel: "a", Op: syncer.PullDeleteLocal}}, actor, m, 0, nil)
 		Expect(res.Deleted).To(Equal(1))
 	})
 })

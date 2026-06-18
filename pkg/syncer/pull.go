@@ -71,7 +71,7 @@ func Pull(ctx context.Context, opts PullOptions, files PullPort, rootID int64, m
 		return PullResult{}, nil
 	}
 	exec := NewPullExecutor(opts.LocalRoot, files)
-	res := RunPull(ctx, items, exec, m, opts.Jobs)
+	res := RunPull(ctx, items, exec, m, opts.Jobs, func() { _ = m.Save(manifestPath) })
 	if err := m.Save(manifestPath); err != nil {
 		return res, fmt.Errorf("save manifest: %w", err)
 	}
