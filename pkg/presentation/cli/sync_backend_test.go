@@ -209,6 +209,72 @@ var _ = Describe("parseSyncFlags", func() {
 		Expect(err).To(HaveOccurred())
 		Expect(err.Error()).To(ContainSubstring("delete-threshold"))
 	})
+
+	// D: --two-way flag assertions moved from black-box sync_test.go (C)
+	It("accepts --two-way flag without error", func() {
+		opts, err := parseSyncFlags([]string{"--two-way"}, errb)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(opts.twoWay).To(BeTrue())
+	})
+
+	It("rejects --two-way together with --pull with mutually exclusive error", func() {
+		_, err := parseSyncFlags([]string{"--two-way", "--pull"}, errb)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("mutually exclusive"))
+	})
+})
+
+var _ = Describe("runSync --two-way with a fake backend", func() {
+	var (
+		orig  func(context.Context, string, string, io.Writer) (syncer.Remote, int64, string, error)
+		root  string
+		mpath string
+		out   *bytes.Buffer
+		errb  *bytes.Buffer
+	)
+	BeforeEach(func() {
+		orig = syncBackend
+		root = GinkgoT().TempDir()
+		mpath = filepath.Join(GinkgoT().TempDir(), "m.tsv")
+		out = &bytes.Buffer{}
+		errb = &bytes.Buffer{}
+		Expect(os.WriteFile(filepath.Join(root, "a.jpg"), []byte("x"), 0o644)).To(Succeed())
+	})
+	AfterEach(func() { syncBackend = orig })
+
+	stub := func(r syncer.Remote, mp string) {
+		syncBackend = func(context.Context, string, string, io.Writer) (syncer.Remote, int64, string, error) {
+			return r, 1, mp, nil
+		}
+	}
+
+	// D: --two-way normal run prints summary line
+	It("--two-way prints the two-way: summary line", func() {
+		ff := &fakeSyncFiles{}
+		stub(ff, mpath)
+		code := runSync([]string{"--two-way", root, "Remote"}, out, errb)
+		Expect(code).To(Equal(0))
+		Expect(out.String()).To(ContainSubstring("two-way:"))
+	})
+
+	// D: --two-way --dry-run writes nothing
+	It("--two-way --dry-run writes nothing and prints dry-run", func() {
+		ff := &fakeSyncFiles{}
+		stub(ff, mpath)
+		code := runSync([]string{"--two-way", "--dry-run", root, "Remote"}, out, errb)
+		Expect(code).To(Equal(0))
+		Expect(out.String()).To(ContainSubstring("dry-run"))
+		Expect(ff.uploads).To(Equal(0))
+	})
+
+	// D: --two-way --pull exits non-zero with mutual-exclusion error
+	It("--two-way --pull exits 2 with mutual-exclusion error", func() {
+		ff := &fakeSyncFiles{}
+		stub(ff, mpath)
+		code := runSync([]string{"--two-way", "--pull", root, "Remote"}, out, errb)
+		Expect(code).To(Equal(2))
+		Expect(errb.String()).To(ContainSubstring("mutually exclusive"))
+	})
 })
 
 var _ = Describe("expandHome", func() {

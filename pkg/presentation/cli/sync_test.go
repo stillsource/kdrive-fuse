@@ -30,4 +30,9 @@ var _ = Describe("sync command flag handling", func() {
 	It("rejects too many positional arguments with exit 2", func() {
 		Expect(cli.Run([]string{"sync", "a", "b", "c"}, "dev", out, errb)).To(Equal(2))
 	})
+
+	It("prints --two-way in help output", func() {
+		Expect(cli.Run([]string{"sync", "--help"}, "dev", out, errb)).To(Equal(0))
+		Expect(out.String()).To(ContainSubstring("--two-way"))
+	})
 })

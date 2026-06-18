@@ -1,6 +1,7 @@
 package syncer_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"io"
@@ -23,8 +24,9 @@ type renameCall struct {
 	name string
 }
 
-// recordingFiles implements remoteindex.Lister, remoteindex.Mkdirer and
-// service.FileWriter/FileManager for executor and push tests.
+// recordingFiles implements remoteindex.Lister, remoteindex.Mkdirer,
+// service.FileWriter/FileManager, and Downloader for executor, push, and
+// two-way tests. It satisfies syncer.Remote.
 type recordingFiles struct {
 	mu               sync.Mutex
 	folders          map[int64][]domain.FileInfo // existing children by folder id
@@ -40,6 +42,7 @@ type recordingFiles struct {
 	listErr          error                     // when set, List returns this error
 	byID             map[int64]domain.FileInfo // current remote state by id (for Stat)
 	statErr          map[int64]error           // when set for an id, Stat returns this error
+	content          map[int64][]byte          // file content by id (for DownloadStream)
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
@@ -135,6 +138,17 @@ func (r *recordingFiles) Rename(_ context.Context, fileID int64, newName string)
 		return info, nil
 	}
 	return domain.FileInfo{ID: fileID, Name: newName}, nil
+}
+
+// DownloadStream serves byID content as a byte stream, mirroring fakeDownloader.
+// It returns domain.ErrNotFound for an unknown id so it satisfies the Remote interface.
+func (r *recordingFiles) DownloadStream(_ context.Context, fileID, _, _ int64) (io.ReadCloser, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if b, ok := r.content[fileID]; ok {
+		return io.NopCloser(bytes.NewReader(b)), nil
+	}
+	return nil, domain.ErrNotFound
 }
 
 var _ = Describe("PushExecutor", func() {
