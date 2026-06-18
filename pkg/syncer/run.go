@@ -21,8 +21,9 @@ type Executor interface {
 	// Delete removes the remote file remoteID.
 	Delete(ctx context.Context, rel string, remoteID int64) error
 	// Move relocates remote file remoteID from fromRel to toRel (a different
-	// folder and/or a new name). The content is unchanged.
-	Move(ctx context.Context, fromRel, toRel string, remoteID int64) error
+	// folder and/or a new name). The content is unchanged. Returns the
+	// authoritative remote mtime after the relocation.
+	Move(ctx context.Context, fromRel, toRel string, remoteID int64) (remoteMtime int64, err error)
 }
 
 // Result summarizes a push run.
@@ -79,7 +80,7 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 				case OpDelete:
 					o.err = ex.Delete(ctx, it.Rel, it.RemoteID)
 				case OpMove:
-					o.err = ex.Move(ctx, it.SrcRel, it.Rel, it.RemoteID)
+					o.remoteMtime, o.err = ex.Move(ctx, it.SrcRel, it.Rel, it.RemoteID)
 				}
 				out <- o
 			}
@@ -139,7 +140,7 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 				Size:        o.item.Size,
 				LocalMtime:  o.item.Mtime,
 				RemoteID:    o.item.RemoteID,
-				RemoteMtime: o.item.RemoteMtime,
+				RemoteMtime: o.remoteMtime, // authoritative post-move value from Stat
 			})
 			res.Moved++
 			maybeCheckpoint()

@@ -241,7 +241,24 @@ var _ = Describe("Push", func() {
 		Expect(out.String()).To(ContainSubstring("skip (remote changed): a.jpg"))
 	})
 
-	It("relocates a renamed file as a server-side move (no re-upload)", func() {
+	It("a local rename WITHOUT --detect-moves is a delete+upload (default-off)", func() {
+		writeLocal("a.jpg", "hello")
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "b.jpg"))).To(Succeed())
+		files.uploads = nil
+		o := opts()
+		o.Force = true // override delete guard
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Moved).To(Equal(0))    // no move without flag
+		Expect(res.Uploaded).To(Equal(1)) // re-upload
+		Expect(res.Deleted).To(Equal(1))  // old path deleted
+	})
+
+	It("relocates a renamed file as a server-side move with --detect-moves (no re-upload)", func() {
 		writeLocal("a.jpg", "hello")
 		// pin a deterministic mtime so the moved file matches the manifest baseline
 		ts := time.Unix(1700000000, 0)
@@ -251,13 +268,16 @@ var _ = Describe("Push", func() {
 		// rename locally (preserves size + mtime)
 		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "b.jpg"))).To(Succeed())
 		files.uploads = nil
-		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		o := opts()
+		o.DetectMoves = true
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(res.Moved).To(Equal(1))
 		Expect(res.Uploaded).To(Equal(0))
 		Expect(res.Deleted).To(Equal(0))
 		Expect(files.uploads).To(BeEmpty())  // not re-uploaded
 		Expect(files.renamed).To(HaveLen(1)) // same folder -> rename only
+		Expect(files.moved).To(BeEmpty())    // same folder -> no Move
 
 		// Verify manifest re-key: old path gone, new path present with same RemoteID.
 		mm, err := manifest.Load(mpath)
@@ -269,7 +289,7 @@ var _ = Describe("Push", func() {
 		Expect(e.RemoteID).NotTo(BeZero())
 	})
 
-	It("moves a file across folders", func() {
+	It("moves a file across folders with --detect-moves", func() {
 		writeLocal("a.jpg", "hello")
 		ts := time.Unix(1700000000, 0)
 		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
@@ -277,10 +297,31 @@ var _ = Describe("Push", func() {
 		Expect(err).NotTo(HaveOccurred())
 		Expect(os.MkdirAll(filepath.Join(root, "sub"), 0o755)).To(Succeed())
 		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "sub", "a.jpg"))).To(Succeed())
-		res, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		o := opts()
+		o.DetectMoves = true
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(res.Moved).To(Equal(1))
-		Expect(files.moved).To(HaveLen(1)) // different folder -> Move called
+		Expect(files.moved).To(HaveLen(1))  // different folder -> Move called
+		Expect(files.renamed).To(BeEmpty()) // same name -> no Rename
+	})
+
+	It("moves across folder AND renames in one operation with --detect-moves", func() {
+		writeLocal("a.jpg", "hello")
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.MkdirAll(filepath.Join(root, "sub"), 0o755)).To(Succeed())
+		// different folder AND different name
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "sub", "b.jpg"))).To(Succeed())
+		o := opts()
+		o.DetectMoves = true
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Moved).To(Equal(1))
+		Expect(files.moved).To(HaveLen(1))   // cross-folder Move
+		Expect(files.renamed).To(HaveLen(1)) // plus Rename
 	})
 
 	It("falls back to delete+upload when two files share size and mtime (ambiguous)", func() {
@@ -294,10 +335,69 @@ var _ = Describe("Push", func() {
 		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "a2.jpg"))).To(Succeed())
 		Expect(os.Rename(filepath.Join(root, "c.jpg"), filepath.Join(root, "c2.jpg"))).To(Succeed())
 		o := opts()
-		o.Force = true // override delete guard: 2/2 = 100% deletion without force
+		o.Force = true       // override delete guard: 2/2 = 100% deletion without force
+		o.DetectMoves = true // even with detect-moves, ambiguous -> no move
 		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
 		Expect(err).NotTo(HaveOccurred())
 		Expect(res.Moved).To(Equal(0)) // ambiguous -> no move
 		Expect(res.Uploaded + res.Deleted).To(BeNumerically(">", 0))
+	})
+
+	It("two empty files renamed never produce a move (size==0 excluded)", func() {
+		writeLocal("empty-a.txt", "")
+		writeLocal("empty-b.txt", "")
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "empty-a.txt"), ts, ts)).To(Succeed())
+		Expect(os.Chtimes(filepath.Join(root, "empty-b.txt"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.Rename(filepath.Join(root, "empty-a.txt"), filepath.Join(root, "empty-a2.txt"))).To(Succeed())
+		Expect(os.Rename(filepath.Join(root, "empty-b.txt"), filepath.Join(root, "empty-b2.txt"))).To(Succeed())
+		o := opts()
+		o.DetectMoves = true
+		o.Force = true // 2/2 deletions
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Moved).To(Equal(0)) // empty files must not be paired
+	})
+
+	It("--detect-moves + --no-delete: local rename stays delete+upload (no move without deletion)", func() {
+		writeLocal("a.jpg", "hello")
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "b.jpg"))).To(Succeed())
+		files.uploads = nil
+		o := opts()
+		o.DetectMoves = true
+		o.NoDelete = true
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		// With --no-delete, moves are suppressed: new file uploads, old kept.
+		Expect(res.Moved).To(Equal(0))
+		Expect(res.Uploaded).To(Equal(1)) // b.jpg uploaded
+		Expect(res.Deleted).To(Equal(0))  // a.jpg kept (no-delete)
+	})
+
+	It("a move error is counted as a failure", func() {
+		writeLocal("a.jpg", "hello")
+		ts := time.Unix(1700000000, 0)
+		Expect(os.Chtimes(filepath.Join(root, "a.jpg"), ts, ts)).To(Succeed())
+		_, err := syncer.Push(context.Background(), opts(), files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(os.Rename(filepath.Join(root, "a.jpg"), filepath.Join(root, "b.jpg"))).To(Succeed())
+		files.uploads = nil
+		files.failRename = map[int64]bool{}
+		// We don't know the ID yet; set it after first push seeded byID.
+		for id := range files.byID {
+			files.failRename[id] = true
+		}
+		o := opts()
+		o.DetectMoves = true
+		res, err := syncer.Push(context.Background(), o, files, 1, mpath, &strings.Builder{})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(res.Failed).To(BeNumerically(">", 0))
+		Expect(res.Moved).To(Equal(0))
 	})
 })

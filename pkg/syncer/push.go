@@ -39,6 +39,7 @@ type PushOptions struct {
 	AssumeNew       bool
 	Refresh         bool    // re-bootstrap the manifest from a fresh remote index
 	DeleteThreshold float64 // fraction of baseline; default 0.20 when zero
+	DetectMoves     bool    // heuristic: pair a delete+upload with same size+mtime as a server-side move
 }
 
 // Push mirrors opts.LocalRoot onto the remote folder rootID, using the manifest
@@ -64,7 +65,9 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 		Bootstrap(m, idx, local)
 	}
 	items := PlanPush(local, m)
-	items = DetectMoves(items, m)
+	if opts.DetectMoves && !opts.NoDelete {
+		items = DetectMoves(items, m)
+	}
 	if opts.NoDelete {
 		items = dropDeletes(items)
 	}
@@ -82,7 +85,7 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 		return Result{}, nil
 	}
 	resolver := remoteindex.NewResolver(files, files, rootID)
-	exec := NewPushExecutor(opts.LocalRoot, resolver, files, files, files, files)
+	exec := NewPushExecutor(opts.LocalRoot, resolver, files, files, files, files, files)
 	res := RunPush(ctx, items, exec, m, opts.Jobs, func() { _ = m.Save(manifestPath) })
 	if err := m.Save(manifestPath); err != nil {
 		return res, fmt.Errorf("save manifest: %w", err)

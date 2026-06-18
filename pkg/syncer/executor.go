@@ -34,13 +34,15 @@ type PushExecutor struct {
 	manager   fileDeleter
 	lister    remoteindex.Lister
 	mover     fileMover
+	stater    fileStater
 }
 
 // NewPushExecutor builds a PushExecutor that reads files under localRoot, places
 // new files under the folders resolver resolves/creates, uploads via w, and
-// deletes via mgr.
-func NewPushExecutor(localRoot string, resolver *remoteindex.Resolver, w service.FileWriter, mgr fileDeleter, lister remoteindex.Lister, mover fileMover) *PushExecutor {
-	return &PushExecutor{localRoot: localRoot, resolver: resolver, writer: w, manager: mgr, lister: lister, mover: mover}
+// deletes via mgr. stater is used to read the authoritative remote mtime after
+// a move.
+func NewPushExecutor(localRoot string, resolver *remoteindex.Resolver, w service.FileWriter, mgr fileDeleter, lister remoteindex.Lister, mover fileMover, stater fileStater) *PushExecutor {
+	return &PushExecutor{localRoot: localRoot, resolver: resolver, writer: w, manager: mgr, lister: lister, mover: mover, stater: stater}
 }
 
 // Upload creates a new remote file from localRoot/rel under its resolved parent.
@@ -137,23 +139,32 @@ func (e *PushExecutor) Delete(ctx context.Context, _ string, remoteID int64) err
 }
 
 // Move relocates remoteID from fromRel to toRel: Move to the destination folder
-// if the parent changed, then Rename if the base name changed.
-func (e *PushExecutor) Move(ctx context.Context, fromRel, toRel string, remoteID int64) error {
+// if the parent changed, then Rename if the base name changed. It returns the
+// authoritative remote mtime read via Stat after the relocation completes.
+//
+// Partial-failure note: if Move succeeds but Rename fails, a retry will call
+// Move again; kDrive treats a move-to-current-parent as idempotent, so the
+// retry is safe.
+func (e *PushExecutor) Move(ctx context.Context, fromRel, toRel string, remoteID int64) (int64, error) {
 	if path.Dir(fromRel) != path.Dir(toRel) {
 		destParent, err := e.resolver.Resolve(ctx, path.Dir(toRel))
 		if err != nil {
-			return fmt.Errorf("resolve dest of %s: %w", toRel, err)
+			return 0, fmt.Errorf("resolve dest of %s: %w", toRel, err)
 		}
 		if err := e.mover.Move(ctx, remoteID, destParent); err != nil {
-			return err
+			return 0, err
 		}
 	}
 	if path.Base(fromRel) != path.Base(toRel) {
 		if _, err := e.mover.Rename(ctx, remoteID, path.Base(toRel)); err != nil {
-			return err
+			return 0, err
 		}
 	}
-	return nil
+	info, err := e.stater.Stat(ctx, remoteID)
+	if err != nil {
+		return 0, err
+	}
+	return info.LastModifiedAt, nil
 }
 
 func (e *PushExecutor) local(rel string) string {

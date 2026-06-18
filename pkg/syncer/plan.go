@@ -30,13 +30,12 @@ const (
 
 // Item is one planned push action.
 type Item struct {
-	Rel         string // destination rel (for OpMove: the new path)
-	Op          Op
-	RemoteID    int64  // OpOverwrite / OpDelete / OpMove
-	Size        int64  // OpUpload / OpOverwrite / OpMove (recorded in the manifest on success)
-	Mtime       int64  // OpUpload / OpOverwrite / OpMove (local mtime, recorded on success)
-	SrcRel      string // OpMove: the manifest key being moved from
-	RemoteMtime int64  // OpMove: the remote mtime carried over (move does not change content)
+	Rel      string // destination rel (for OpMove: the new path)
+	Op       Op
+	RemoteID int64  // OpOverwrite / OpDelete / OpMove
+	Size     int64  // OpUpload / OpOverwrite / OpMove (recorded in the manifest on success)
+	Mtime    int64  // OpUpload / OpOverwrite / OpMove (local mtime, recorded on success)
+	SrcRel   string // OpMove: the manifest key being moved from
 }
 
 // PlanPush classifies a push (local -> remote) against the manifest baseline.
@@ -65,11 +64,14 @@ func PlanPush(local []LocalFile, m *manifest.Manifest) []Item {
 	return items
 }
 
-// DetectMoves rewrites delete+upload pairs that look like a rename/move (the new
-// local file has the same size and mtime as a deleted manifest entry) into a
-// single OpMove, avoiding a re-upload. Only unambiguous 1:1 matches (exactly one
-// upload and one delete for a (size, mtime) key) are paired; any ambiguity falls
-// back to the original delete+upload.
+// DetectMoves rewrites delete+upload pairs that look like a rename/move into a
+// single OpMove, avoiding a re-upload. It is a heuristic: it pairs a delete and
+// an upload that share the same size and mtime, but does NOT verify content
+// identity. Two unrelated files with equal size and mtime could be mis-paired
+// (one reason this function is opt-in via PushOptions.DetectMoves). Only
+// unambiguous 1:1 matches (exactly one upload and one delete for a (size, mtime)
+// key) are paired; any ambiguity falls back to the original delete+upload. Empty
+// files (size == 0) are never paired because they all share the key (0, 0).
 func DetectMoves(items []Item, m *manifest.Manifest) []Item {
 	type key struct{ size, mtime int64 }
 	uploads := map[key][]int{}
@@ -78,10 +80,16 @@ func DetectMoves(items []Item, m *manifest.Manifest) []Item {
 		switch it.Op {
 		case OpUpload:
 			k := key{it.Size, it.Mtime}
+			if k.size == 0 {
+				continue // empty files share (0,0) key — never pair them
+			}
 			uploads[k] = append(uploads[k], i)
 		case OpDelete:
 			e, _ := m.Get(it.Rel)
 			k := key{e.Size, e.LocalMtime}
+			if k.size == 0 {
+				continue // skip empty files
+			}
 			deletes[k] = append(deletes[k], i)
 		}
 	}
@@ -96,13 +104,12 @@ func DetectMoves(items []Item, m *manifest.Manifest) []Item {
 		del := items[dels[0]]
 		e, _ := m.Get(del.Rel)
 		moves = append(moves, Item{
-			Op:          OpMove,
-			SrcRel:      del.Rel,
-			Rel:         up.Rel,
-			RemoteID:    e.RemoteID,
-			Size:        e.Size,
-			Mtime:       up.Mtime,
-			RemoteMtime: e.RemoteMtime,
+			Op:       OpMove,
+			SrcRel:   del.Rel,
+			Rel:      up.Rel,
+			RemoteID: e.RemoteID,
+			Size:     e.Size,
+			Mtime:    up.Mtime,
 		})
 		drop[ups[0]] = true
 		drop[dels[0]] = true

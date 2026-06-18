@@ -34,6 +34,7 @@ type recordingFiles struct {
 	moved            [][2]int64                // {fileID, destDirID} per Move call
 	renamed          []renameCall              // per Rename call
 	failUpload       map[string]bool           // upload of these names returns an error
+	failRename       map[int64]bool            // Rename of these ids returns an error
 	conflictOnNew    map[string]bool           // a NEW upload (no ExistingFileID) of these names returns ErrConflict
 	notFoundOnDelete map[int64]bool            // Delete of these ids returns domain.ErrNotFound
 	listErr          error                     // when set, List returns this error
@@ -124,6 +125,9 @@ func (r *recordingFiles) Move(_ context.Context, fileID, destDirID int64) error 
 func (r *recordingFiles) Rename(_ context.Context, fileID int64, newName string) (domain.FileInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.failRename[fileID] {
+		return domain.FileInfo{}, errors.New("rename failed")
+	}
 	r.renamed = append(r.renamed, renameCall{id: fileID, name: newName})
 	if info, ok := r.byID[fileID]; ok {
 		info.Name = newName
@@ -143,7 +147,7 @@ var _ = Describe("PushExecutor", func() {
 		root = GinkgoT().TempDir()
 		files = &recordingFiles{folders: map[int64][]domain.FileInfo{}}
 		resolver := remoteindex.NewResolver(files, files, 1)
-		ex = syncer.NewPushExecutor(root, resolver, files, files, files, files)
+		ex = syncer.NewPushExecutor(root, resolver, files, files, files, files, files)
 	})
 	writeLocal := func(rel, data string) {
 		p := filepath.Join(root, filepath.FromSlash(rel))

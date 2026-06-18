@@ -72,7 +72,6 @@ var _ = Describe("DetectMoves", func() {
 		Expect(got[0].Rel).To(Equal("new.jpg"))
 		Expect(got[0].RemoteID).To(Equal(int64(7)))
 		Expect(got[0].Size).To(Equal(int64(10)))
-		Expect(got[0].RemoteMtime).To(Equal(int64(200)))
 	})
 
 	It("leaves ambiguous pairs (two deletes + two uploads sharing one key) as-is", func() {
@@ -101,6 +100,21 @@ var _ = Describe("DetectMoves", func() {
 			{Rel: "new.jpg", Op: syncer.OpUpload, Size: 99, Mtime: 100}, // different size
 		}
 		got := syncer.DetectMoves(items, m)
+		Expect(got).To(HaveLen(2))
+		for _, it := range got {
+			Expect(it.Op).NotTo(Equal(syncer.OpMove))
+		}
+	})
+
+	It("never pairs empty files (size == 0) to avoid (0,0) key collisions", func() {
+		m := manifest.New()
+		m.Set("empty-old.txt", manifest.Entry{Size: 0, LocalMtime: 100, RemoteID: 7, RemoteMtime: 200})
+		items := []syncer.Item{
+			{Rel: "empty-old.txt", Op: syncer.OpDelete, RemoteID: 7},
+			{Rel: "empty-new.txt", Op: syncer.OpUpload, Size: 0, Mtime: 100},
+		}
+		got := syncer.DetectMoves(items, m)
+		// Empty files must not be paired — falls back to delete+upload.
 		Expect(got).To(HaveLen(2))
 		for _, it := range got {
 			Expect(it.Op).NotTo(Equal(syncer.OpMove))

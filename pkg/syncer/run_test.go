@@ -54,8 +54,8 @@ func (f *fakeExec) Delete(_ context.Context, rel string, remoteID int64) error {
 	return nil
 }
 
-func (f *fakeExec) Move(_ context.Context, fromRel, toRel string, remoteID int64) error {
-	return nil
+func (f *fakeExec) Move(_ context.Context, fromRel, toRel string, remoteID int64) (int64, error) {
+	return 9200, nil
 }
 
 var _ = Describe("RunPush", func() {
@@ -119,6 +119,37 @@ var _ = Describe("RunPush", func() {
 		res := syncer.RunPush(context.Background(), items, ex, m, 8, nil)
 		Expect(res.Uploaded).To(Equal(200))
 		Expect(m.Len()).To(Equal(200))
+	})
+
+	It("OpMove: re-keys the manifest from SrcRel to Rel and records the mtime from Move", func() {
+		m := manifest.New()
+		m.Set("old.jpg", manifest.Entry{Size: 10, LocalMtime: 100, RemoteID: 77, RemoteMtime: 200})
+		items := []syncer.Item{
+			{
+				Op:       syncer.OpMove,
+				SrcRel:   "old.jpg",
+				Rel:      "sub/new.jpg",
+				RemoteID: 77,
+				Size:     10,
+				Mtime:    100,
+			},
+		}
+		ex := &fakeExec{fail: map[string]bool{}}
+		res := syncer.RunPush(context.Background(), items, ex, m, 1, nil)
+
+		Expect(res.Moved).To(Equal(1))
+		Expect(res.Failed).To(Equal(0))
+
+		_, oldPresent := m.Get("old.jpg")
+		Expect(oldPresent).To(BeFalse())
+
+		e, newPresent := m.Get("sub/new.jpg")
+		Expect(newPresent).To(BeTrue())
+		Expect(e.RemoteID).To(Equal(int64(77)))
+		// RemoteMtime must be what fakeExec.Move returned (9200), not the carried value.
+		Expect(e.RemoteMtime).To(Equal(int64(9200)))
+		Expect(e.Size).To(Equal(int64(10)))
+		Expect(e.LocalMtime).To(Equal(int64(100)))
 	})
 
 	It("checkpoints the manifest every 64 successful ops", func() {
