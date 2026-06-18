@@ -90,12 +90,17 @@ Switch from `slog.NewTextHandler` to `slog.NewJSONHandler` so records are grep-f
 ### Idempotency for non-idempotent ops
 Upload now retries transient failures (429 / 5xx / transport) by rewinding its `io.ReadSeeker` body before each attempt; non-transient 4xx fail fast. Verify that Rename / Move are idempotent (second call returns 404 or success) and document the guarantees; tighten if needed.
 
+### `kdrive search QUERY...` CLI
+Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.search/` directory (to avoid custom Lookup/Readdir interception and query-as-path escaping). Joins positional args with spaces, calls `GET /files/search?q=<query>&per_page=500&page=N` (paginated until exhausted), and prints one line per match (id, name, size) to stdout. Empty query exits 2 with usage; zero results print "no matches". Ids are scriptable — pipe to `kdrive share` or `kdrive trash`. Wired in `pkg/presentation/cli/search.go`; backed by `FilesService.Search` in `pkg/infrastructure/kdriveapi/search.go`; port `service.Searcher`; use case `usecase.SearchFiles`.
+
+**Endpoint note:** the Infomaniak Android app calls `GET /3/drive/{id}/files/search`; this client appends `/files/search` to the v2 base used for all other routes. If the v2 path returns an error it is non-destructive — verify against the live API.
+
 ---
 
 ## Bonus
 
-### Full-text search
-`GET /files/search?q=...` exposed as a virtual directory `~/kDrive-vfs/.search/{query}/` whose contents are the matching files.
+### Full-text search (virtual directory)
+`GET /files/search?q=...` exposed as a virtual directory `~/kDrive-vfs/.search/{query}/` whose contents are the matching files (deferred: requires custom FUSE Lookup/Readdir interception and query-as-path escaping; delivered instead as `kdrive search` CLI).
 
 ### Multi-drive mount
 Mount multiple drives under `/mnt/kdrive/{drive_id}/`. One `KDriveFS` per drive; the top-level inode lists configured drives.

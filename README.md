@@ -154,6 +154,24 @@ kdrive trash empty --yes
 
 **Note on endpoints:** the Infomaniak Android app lists trash on a v3 path; this client appends `/trash` to the same v2 base it uses for all other routes. Verify against the live API before relying on write operations. Read operations (`list`) are safe to run without risk.
 
+### search
+
+```
+kdrive search QUERY...
+```
+
+Full-text search across the drive without a FUSE mount. One or more words are joined with spaces and sent as the search query. Matching files are printed to stdout (one per line: id, name, size), so the ids can be piped directly to `kdrive share` or `kdrive trash`.
+
+```bash
+# Search for a file by name or content:
+kdrive search annual report
+
+# Pipe to share:
+kdrive search budget 2025 | awk '{print $1}' | xargs -I{} kdrive share {}
+```
+
+**Note on endpoints:** the Infomaniak Android app uses a v3 path (`GET /3/drive/{id}/files/search`); this client appends `/files/search` to the same v2 base it uses for all other routes. If the endpoint is wrong it only errors non-destructively — verify against the live API.
+
 **Change detection — manifest baseline.** Push tracks state in a TSV manifest at `$XDG_STATE_HOME/kdrive/<hash>.tsv` (falling back to `~/.local/state/kdrive/`), keyed by a hash of the (local root, remote root) pair. Each entry records size, local mtime, remote file ID, and remote mtime from the last sync. On a steady-state push the planner compares local size + mtime against the manifest: a file is unchanged, an overwrite, a new upload, or a delete — no remote listing required, because the manifest carries remote IDs.
 
 The kDrive API exposes no content hash for existing files, which is why size + mtime is used as the change signal rather than a checksum. Use `--verify` to confirm presence and size correctness after a push.
