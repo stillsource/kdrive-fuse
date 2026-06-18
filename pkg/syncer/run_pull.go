@@ -2,7 +2,9 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -174,9 +176,14 @@ func (e *PullExecutor) Download(ctx context.Context, rel string, remoteID int64)
 	return n, info.ModTime().Unix(), nil
 }
 
-// DeleteLocal removes the local file at rel.
+// DeleteLocal removes the local file at rel. Removing an already-gone file is
+// treated as success, so a re-run after a crash that removed it without
+// checkpointing the manifest completes cleanly.
 func (e *PullExecutor) DeleteLocal(rel string) error {
-	return os.Remove(e.local(rel))
+	if err := os.Remove(e.local(rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (e *PullExecutor) local(rel string) string {

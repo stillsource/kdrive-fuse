@@ -20,18 +20,23 @@ import (
 // recordingFiles implements remoteindex.Lister, remoteindex.Mkdirer and
 // service.FileWriter/FileManager for executor and push tests.
 type recordingFiles struct {
-	mu            sync.Mutex
-	folders       map[int64][]domain.FileInfo // existing children by folder id
-	nextID        int64
-	uploads       []service.UploadInput
-	deleted       []int64
-	failUpload    map[string]bool // upload of these names returns an error
-	conflictOnNew map[string]bool // a NEW upload (no ExistingFileID) of these names returns ErrConflict
+	mu               sync.Mutex
+	folders          map[int64][]domain.FileInfo // existing children by folder id
+	nextID           int64
+	uploads          []service.UploadInput
+	deleted          []int64
+	failUpload       map[string]bool // upload of these names returns an error
+	conflictOnNew    map[string]bool // a NEW upload (no ExistingFileID) of these names returns ErrConflict
+	notFoundOnDelete map[int64]bool  // Delete of these ids returns domain.ErrNotFound
+	listErr          error           // when set, List returns this error
 }
 
 func (r *recordingFiles) List(_ context.Context, folderID int64) ([]domain.FileInfo, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.listErr != nil {
+		return nil, r.listErr
+	}
 	return r.folders[folderID], nil
 }
 
@@ -62,6 +67,9 @@ func (r *recordingFiles) Upload(_ context.Context, in service.UploadInput) (doma
 func (r *recordingFiles) Delete(_ context.Context, fileID int64) error {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.notFoundOnDelete[fileID] {
+		return domain.ErrNotFound
+	}
 	r.deleted = append(r.deleted, fileID)
 	return nil
 }
@@ -129,5 +137,37 @@ var _ = Describe("PushExecutor", func() {
 		Expect(mtime).To(Equal(int64(4242))) // mtime from the overwrite
 		Expect(files.uploads).To(HaveLen(1)) // the failed NEW upload was not recorded
 		Expect(files.uploads[0].ExistingFileID).To(Equal(int64(77)))
+	})
+
+	It("treats deleting an already-gone remote file as success (idempotent re-run)", func() {
+		files.notFoundOnDelete = map[int64]bool{99: true}
+		Expect(ex.Delete(context.Background(), "x.jpg", 99)).To(Succeed())
+	})
+
+	It("surfaces the original conflict when the file can't be found for reconcile", func() {
+		writeLocal("a.jpg", "hello")
+		files.conflictOnNew = map[string]bool{"a.jpg": true} // folders[1] left empty
+		_, _, err := ex.Upload(context.Background(), "a.jpg", 5)
+		Expect(err).To(MatchError(domain.ErrConflict))
+	})
+
+	It("propagates a listing error during reconcile", func() {
+		writeLocal("a.jpg", "hello")
+		files.conflictOnNew = map[string]bool{"a.jpg": true}
+		files.listErr = errors.New("list boom")
+		_, _, err := ex.Upload(context.Background(), "a.jpg", 5)
+		Expect(err).To(MatchError(ContainSubstring("list boom")))
+	})
+
+	It("skips a same-named directory when reconciling to the file", func() {
+		writeLocal("a.jpg", "hello")
+		files.folders[1] = []domain.FileInfo{
+			{ID: 50, Name: "a.jpg", Type: domain.FileTypeDir},
+			{ID: 77, Name: "a.jpg", Type: domain.FileTypeFile},
+		}
+		files.conflictOnNew = map[string]bool{"a.jpg": true}
+		id, _, err := ex.Upload(context.Background(), "a.jpg", 5)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(id).To(Equal(int64(77))) // the directory was skipped
 	})
 })

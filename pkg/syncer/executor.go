@@ -61,7 +61,12 @@ func (e *PushExecutor) Upload(ctx context.Context, rel string, size int64) (int6
 	if !errors.Is(err, domain.ErrConflict) {
 		return 0, 0, err
 	}
-	// A prior run already created this file. Find it and overwrite by id.
+	// A prior interrupted run already created this file, so reconcile to an
+	// overwrite-by-id (the re-run is idempotent). findChild matches purely by
+	// name, so if the colliding remote file was created out-of-band (not by us)
+	// this overwrites it — acceptable for a one-way, local-is-authoritative push,
+	// and recoverable from the kDrive trash. Detecting genuine out-of-band drift
+	// before clobbering is the job of the push drift guard (a later change).
 	existingID, found, lerr := e.findChild(ctx, parentID, path.Base(rel))
 	if lerr != nil {
 		return 0, 0, lerr
@@ -77,7 +82,9 @@ func (e *PushExecutor) Upload(ctx context.Context, rel string, size int64) (int6
 }
 
 // findChild lists parentID and returns the id of the non-directory child named
-// name, if present.
+// name, if present. kDrive can technically hold duplicate names in one folder;
+// the first non-dir match wins (this tool's own uploads use conflict=error, so
+// it never creates duplicates itself).
 func (e *PushExecutor) findChild(ctx context.Context, parentID int64, name string) (int64, bool, error) {
 	children, err := e.lister.List(ctx, parentID)
 	if err != nil {
@@ -110,9 +117,15 @@ func (e *PushExecutor) Overwrite(ctx context.Context, rel string, remoteID, size
 	return info.LastModifiedAt, nil
 }
 
-// Delete removes remote file remoteID.
+// Delete removes remote file remoteID. A delete of an already-gone file
+// (domain.ErrNotFound) is treated as success: the desired end-state (the file is
+// gone) is already reached, so a re-run after a crash that deleted it without
+// checkpointing the manifest completes cleanly instead of reporting a failure.
 func (e *PushExecutor) Delete(ctx context.Context, _ string, remoteID int64) error {
-	return e.manager.Delete(ctx, remoteID)
+	if err := e.manager.Delete(ctx, remoteID); err != nil && !errors.Is(err, domain.ErrNotFound) {
+		return err
+	}
+	return nil
 }
 
 func (e *PushExecutor) local(rel string) string {

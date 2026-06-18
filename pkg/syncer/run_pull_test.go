@@ -59,6 +59,11 @@ var _ = Describe("PullExecutor", func() {
 		_, err := os.Stat(p)
 		Expect(os.IsNotExist(err)).To(BeTrue())
 	})
+
+	It("treats deleting an already-gone local file as success (idempotent re-run)", func() {
+		ex := syncer.NewPullExecutor(root, &fakeDownloader{})
+		Expect(ex.DeleteLocal("missing.jpg")).To(Succeed())
+	})
 })
 
 // fakePullActor records actions and can fail selected paths.
