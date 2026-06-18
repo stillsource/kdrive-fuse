@@ -8,16 +8,22 @@ import (
 
 	"github.com/stillsource/kdrive-fuse/pkg/appconfig"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/di"
+	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/filesearch"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 	"github.com/stillsource/kdrive-fuse/pkg/usecase"
 )
 
-const searchUsage = `kdrive search — full-text search across the drive.
+const searchUsage = `kdrive search — find files by name across the drive.
 
 Usage:
-  kdrive search QUERY...
+  kdrive search TERM...
 
-  QUERY  one or more words to search for (joined with spaces)
+  TERM  one or more terms; a file matches when its path (folders + name)
+        contains ALL terms, case-insensitively. This is a literal substring
+        filter on names, not a full-text search of file contents.
+
+The drive tree is listed and filtered locally (kDrive's server-side search is
+not a reliable filename filter), so a search walks the whole drive.
 
 Flags:
   -h, --help  show this help
@@ -31,7 +37,7 @@ var searchBackend = func(ctx context.Context, stderr io.Writer) (service.Searche
 	}
 	log := app.NewLogger(stderr)
 	client := di.NewContainer(app.DI(log)).Client()
-	return client.Files, nil
+	return filesearch.New(client.Files, app.RootFolderID), nil
 }
 
 // runSearch is the "search" subcommand entry point.
@@ -45,7 +51,7 @@ func runSearch(args []string, stdout, stderr io.Writer) int {
 	}
 
 	if len(args) == 0 {
-		_, _ = fmt.Fprintf(stderr, "kdrive search: expected at least one QUERY argument\n\n%s", searchUsage)
+		_, _ = fmt.Fprintf(stderr, "kdrive search: expected at least one TERM argument\n\n%s", searchUsage)
 		return 2
 	}
 
@@ -58,19 +64,19 @@ func runSearch(args []string, stdout, stderr io.Writer) int {
 		return 1
 	}
 
-	files, err := usecase.NewSearchFiles(searcher).Execute(ctx, query)
+	hits, err := usecase.NewSearchFiles(searcher).Execute(ctx, query)
 	if err != nil {
 		_, _ = fmt.Fprintf(stderr, "kdrive search: %v\n", err)
 		return 1
 	}
 
-	if len(files) == 0 {
+	if len(hits) == 0 {
 		_, _ = fmt.Fprintln(stdout, "no matches")
 		return 0
 	}
 
-	for _, f := range files {
-		_, _ = fmt.Fprintf(stdout, "\t%d\t%s\t(%d bytes)\n", f.ID, f.Name, f.Size)
+	for _, h := range hits {
+		_, _ = fmt.Fprintf(stdout, "\t%d\t%s\t(%d bytes)\n", h.ID, h.Path, h.Size)
 	}
 	return 0
 }

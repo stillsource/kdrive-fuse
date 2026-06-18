@@ -9,7 +9,6 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
@@ -20,14 +19,14 @@ type fakeSearchBackend struct {
 }
 
 type fakeSearchBackendResult struct {
-	files []domain.FileInfo
-	err   error
+	hits []service.SearchHit
+	err  error
 }
 
-func (f *fakeSearchBackend) Search(_ context.Context, query string) ([]domain.FileInfo, error) {
+func (f *fakeSearchBackend) Search(_ context.Context, query string) ([]service.SearchHit, error) {
 	f.calls = append(f.calls, query)
 	if res, ok := f.results[query]; ok {
-		return res.files, res.err
+		return res.hits, res.err
 	}
 	return nil, nil
 }
@@ -56,11 +55,11 @@ var _ = Describe("runSearch with a fake backend", func() {
 		errb = &bytes.Buffer{}
 	})
 
-	It("prints matching files with id, name and size", func() {
+	It("prints matching files with id, path and size", func() {
 		fake.results["report"] = fakeSearchBackendResult{
-			files: []domain.FileInfo{
-				{ID: 42, Name: "annual-report.pdf", Size: 204800},
-				{ID: 43, Name: "report-2025.docx", Size: 51200},
+			hits: []service.SearchHit{
+				{ID: 42, Path: "2025/annual-report.pdf", Size: 204800},
+				{ID: 43, Path: "docs/report-2025.docx", Size: 51200},
 			},
 		}
 		restore := stubSearchBackend(fake)
@@ -71,15 +70,15 @@ var _ = Describe("runSearch with a fake backend", func() {
 		Expect(code).To(Equal(0))
 		Expect(errb.String()).To(BeEmpty())
 		Expect(out.String()).To(ContainSubstring("42"))
-		Expect(out.String()).To(ContainSubstring("annual-report.pdf"))
+		Expect(out.String()).To(ContainSubstring("2025/annual-report.pdf"))
 		Expect(out.String()).To(ContainSubstring("204800"))
 		Expect(out.String()).To(ContainSubstring("43"))
-		Expect(out.String()).To(ContainSubstring("report-2025.docx"))
+		Expect(out.String()).To(ContainSubstring("docs/report-2025.docx"))
 	})
 
 	It("joins multi-word args into a single query", func() {
 		fake.results["hello world"] = fakeSearchBackendResult{
-			files: []domain.FileInfo{{ID: 1, Name: "hello world.txt", Size: 10}},
+			hits: []service.SearchHit{{ID: 1, Path: "notes/hello world.txt", Size: 10}},
 		}
 		restore := stubSearchBackend(fake)
 		defer restore()
@@ -88,11 +87,11 @@ var _ = Describe("runSearch with a fake backend", func() {
 
 		Expect(code).To(Equal(0))
 		Expect(fake.calls).To(ConsistOf("hello world"))
-		Expect(out.String()).To(ContainSubstring("hello world.txt"))
+		Expect(out.String()).To(ContainSubstring("notes/hello world.txt"))
 	})
 
 	It("prints 'no matches' when zero results are returned", func() {
-		fake.results["ghost"] = fakeSearchBackendResult{files: []domain.FileInfo{}}
+		fake.results["ghost"] = fakeSearchBackendResult{hits: []service.SearchHit{}}
 		restore := stubSearchBackend(fake)
 		defer restore()
 
