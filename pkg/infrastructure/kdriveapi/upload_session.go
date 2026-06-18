@@ -99,7 +99,7 @@ func (s *FilesService) sessionStart(ctx context.Context, in service.UploadInput,
 	} else {
 		body["file_name"] = in.Name
 		body["directory_id"] = strconv.FormatInt(in.ParentID, 10)
-		body["conflict"] = "error"
+		body["conflict"] = conflictMode(in.Conflict)
 	}
 	jsonBody, err := json.Marshal(body)
 	if err != nil {

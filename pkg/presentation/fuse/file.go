@@ -315,12 +315,17 @@ func (h *writeHandle) commitLocked(ctx context.Context) syscall.Errno {
 		slog.Error("commit seek", "err", err)
 		return syscall.EIO
 	}
+	conflict := ""
+	if h.existingFileID == 0 {
+		conflict = "rename"
+	}
 	in := service.UploadInput{
 		ParentID:       h.parentID,
 		ExistingFileID: h.existingFileID,
 		Name:           h.name,
 		Body:           h.tmp,
 		Size:           stat.Size(),
+		Conflict:       conflict,
 	}
 	info, err := h.commit.Execute(ctx, in, h.parentID)
 	if err != nil {

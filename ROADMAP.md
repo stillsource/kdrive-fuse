@@ -56,6 +56,9 @@ Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infras
 ### Setattr `utimens` → `last_modified_at` (touch support)
 `Setattr` now persists mtime via `POST /files/{id}/last-modified` with body `{"last_modified_at": <unix seconds>}` — the endpoint confirmed in Infomaniak's desktop-kDrive client. The `SetModifiedAt` method on `FilesService` mirrors the `Rename` adapter; the `SetMtime` use case invalidates the parent listing on success. `FileNode.Setattr` resolves the parent `DirNode`'s `folderID`, calls `SetMtime.Execute`, and patches `f.info.LastModifiedAt`. On a `ReadOnly` mount, an mtime `Setattr` returns `EROFS`. `touch file` now works as expected.
 
+### Upload conflict handling
+`UploadInput.Conflict` selects the conflict mode for new uploads: `""` (default) → `conflict=error`; `"version"` → keep existing as a prior version; `"rename"` → append ` (1)` to the name. The field is ignored in edit mode (uses `file_id`). The FUSE `writeHandle` sets `Conflict: "rename"` for new-file creates so `cp` of a duplicate filename produces the familiar `foo (1).txt` behavior instead of failing. The sync path leaves `Conflict` empty (defaults to `error`) so the conflict-reconciliation logic in `PushExecutor.Upload` (detect `ErrConflict` → overwrite by id) still works correctly. Applies to both single-shot and chunked upload paths.
+
 ---
 
 ## UX
@@ -66,8 +69,6 @@ A small binary (or subcommand) that prints the public share URL for a file in th
 ### `.trash/` virtual directory
 Expose the kDrive trash as `~/kDrive-vfs/.trash/` via `GET /files/trash`. `rm .trash/x` purges permanently, `mv .trash/x /target/` restores. Needs a dedicated trash endpoint family in the API.
 
-### Upload conflict handling
-Uploads currently use `conflict=error` (fails on duplicate). Alternatives: `conflict=version` (new version) and `conflict=rename` (appends `(1)`). Expose a knob on `UploadInput` and default to `error`, but let the FUSE writeHandle choose `rename` so `cp` of a duplicated filename produces the familiar `foo (1).txt` behavior.
 
 ---
 

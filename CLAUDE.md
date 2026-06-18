@@ -180,6 +180,20 @@ Each commit is single-shot (whole file buffered, capped at 100 MB in practice). 
 
 `rm` / `rmdir` → `DirNode.Unlink` / `Rmdir` → `removeChild` looks up the ID from the cached listing → `DeleteEntry` use case → `FileManager.Delete` (soft-delete, returns `cancel_id` and stays recoverable from kDrive trash) → cache invalidate.
 
+## UploadInput.Conflict — new-file conflict mode
+
+`service.UploadInput.Conflict` selects the `conflict=` query param / start-body field sent on **new** uploads (ignored when `ExistingFileID > 0` / edit mode):
+
+- `""` (zero value) → `conflict=error` (fail on duplicate name; default for sync)
+- `"version"` → keep the existing file as a prior version
+- `"rename"` → append ` (1)` to the name (used by FUSE new-file creates)
+
+The sanitization is in `kdriveapi.conflictMode(c string)` (in `files.go`); unrecognized values fall back to `"error"`. Both the single-shot path (`files.go`) and the chunked session start (`upload_session.go`) use `conflictMode(in.Conflict)`.
+
+**FUSE vs sync defaults:**
+- `pkg/presentation/fuse/file.go` `commitLocked`: sets `Conflict: "rename"` when `existingFileID == 0` (new file) so `cp` of a duplicate name yields `foo (1).txt` instead of an error.
+- `pkg/syncer/executor.go`: leaves `Conflict` empty → defaults to `"error"` → `ErrConflict` triggers the existing reconciliation logic (find child by name → overwrite by id).
+
 ## kDrive API quirks (learned the hard way)
 
 - **Upload uses a DIFFERENT HOST**: `api.kdrive.infomaniak.com/2/drive/{driveID}/upload` (NOT `api.infomaniak.com`). The `api.infomaniak.com/files/{parentID}/file?type=txt` endpoint looks like upload but only creates empty Office documents (3-byte BOM). Source of truth: `Infomaniak/desktop-kDrive` on GitHub, `src/libsyncengine/jobs/network/kDrive_API/upload/uploadjob.cpp`.

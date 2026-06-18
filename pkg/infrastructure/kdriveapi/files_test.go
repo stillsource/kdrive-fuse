@@ -375,6 +375,79 @@ var _ = Describe("FilesService", func() {
 			Expect(gotURL).NotTo(ContainSubstring("conflict="))
 		})
 
+		It("sends conflict=rename when Conflict is 'rename'", func() {
+			var gotURL string
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				gotURL = r.URL.String()
+				_ = readBody(r)
+				writeJSON(w, 200, `{"data":{"id":51,"name":"new.txt","type":"file","size":3}}`)
+			})
+			body := []byte("new")
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
+				ParentID: 1,
+				Name:     "new.txt",
+				Body:     bytes.NewReader(body),
+				Size:     int64(len(body)),
+				Conflict: "rename",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gotURL).To(ContainSubstring("conflict=rename"))
+		})
+
+		It("sends conflict=version when Conflict is 'version'", func() {
+			var gotURL string
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				gotURL = r.URL.String()
+				_ = readBody(r)
+				writeJSON(w, 200, `{"data":{"id":52,"name":"ver.txt","type":"file","size":3}}`)
+			})
+			body := []byte("ver")
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
+				ParentID: 1,
+				Name:     "ver.txt",
+				Body:     bytes.NewReader(body),
+				Size:     int64(len(body)),
+				Conflict: "version",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gotURL).To(ContainSubstring("conflict=version"))
+		})
+
+		It("falls back to conflict=error for an unrecognized Conflict value", func() {
+			var gotURL string
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				gotURL = r.URL.String()
+				_ = readBody(r)
+				writeJSON(w, 200, `{"data":{"id":53,"name":"f.txt","type":"file","size":1}}`)
+			})
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
+				ParentID: 1,
+				Name:     "f.txt",
+				Body:     bytes.NewReader([]byte("x")),
+				Size:     1,
+				Conflict: "bogus",
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gotURL).To(ContainSubstring("conflict=error"))
+		})
+
+		It("Conflict is ignored in edit mode (no conflict param)", func() {
+			var gotURL string
+			fx.Mux.HandleFunc("/2/drive/1234/upload", func(w http.ResponseWriter, r *http.Request) {
+				gotURL = r.URL.String()
+				_ = readBody(r)
+				writeJSON(w, 200, `{"data":{"id":42,"name":"kept.txt","type":"file","size":3}}`)
+			})
+			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{
+				ExistingFileID: 42,
+				Body:           bytes.NewReader([]byte("x")),
+				Size:           1,
+				Conflict:       "rename", // must be ignored
+			})
+			Expect(err).NotTo(HaveOccurred())
+			Expect(gotURL).NotTo(ContainSubstring("conflict="))
+		})
+
 		It("rejects nil body", func() {
 			_, err := fx.Client.Files.Upload(ctx, service.UploadInput{ParentID: 1, Name: "x.txt"})
 			Expect(errors.Is(err, domain.ErrValidation)).To(BeTrue())
