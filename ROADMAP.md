@@ -91,10 +91,10 @@ Delivered as a `kdrive trash` CLI subcommand rather than a FUSE virtual `.trash/
 ### Structured JSON logs (`KDRIVE_LOG_FORMAT`)
 `KDRIVE_LOG_FORMAT=json` switches the daemon and the CLI client logger to `slog.NewJSONHandler` (jq-friendly); default `text` keeps `journalctl` human-readable. Standard-library `log/slog` only — no logging dependency.
 
-### `kdrive search QUERY...` CLI
-Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.search/` directory (to avoid custom Lookup/Readdir interception and query-as-path escaping). Joins positional args with spaces, calls `GET /files/search?q=<query>&per_page=500&page=N` (paginated until exhausted), and prints one line per match (id, name, size) to stdout. Empty query exits 2 with usage; zero results print "no matches". Ids are scriptable — pipe to `kdrive share` or `kdrive trash`. Wired in `pkg/presentation/cli/search.go`; backed by `FilesService.Search` in `pkg/infrastructure/kdriveapi/search.go`; port `service.Searcher`; use case `usecase.SearchFiles`.
+### `kdrive search TERM...` CLI (client-side filename filter)
+Delivered as a `kdrive search` CLI subcommand rather than a FUSE virtual `.search/` directory (to avoid custom Lookup/Readdir interception and query-as-path escaping). A file matches when its path (folders + name) contains **all** whitespace-separated terms, case-insensitively (a literal substring filter, not full-text content search). Prints one tab-separated line per match — `id`, path, size — sorted by path; ids are scriptable (pipe to `kdrive share` / `kdrive trash`). Empty query exits 2 with usage; zero results print "no matches".
 
-**Endpoint note:** the Infomaniak Android app calls `GET /3/drive/{id}/files/search`; this client appends `/files/search` to the v2 base used for all other routes. If the v2 path returns an error it is non-destructive — verify against the live API.
+**Why client-side (not the API's `/files/search`):** a live check showed kDrive's server-side search is not a usable filename filter — the **v2** path ignores the query and returns the whole drive (which also tripped the API's 10000-element pagination cap), and the **v3** path is an opaque relevance ranking (cursor-paginated, `limit≥5`) with indexing lag that does not reliably surface obvious filename matches (e.g. just-uploaded files are missing). So `kdrive search` lists the tree (`remoteindex.Build`) and filters locally for predictable, scriptable results. Trade-off: a search walks the whole drive (a `--path` subtree scope is a possible future optimisation). Wired in `pkg/presentation/cli/search.go`; backed by `pkg/infrastructure/filesearch`; port `service.Searcher` (returns `service.SearchHit{Path,ID,Size}`); use case `usecase.SearchFiles`.
 
 ---
 

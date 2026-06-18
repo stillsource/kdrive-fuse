@@ -7,7 +7,7 @@ import (
 	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 
-	"github.com/stillsource/kdrive-fuse/pkg/domain"
+	"github.com/stillsource/kdrive-fuse/pkg/service"
 	"github.com/stillsource/kdrive-fuse/pkg/usecase"
 )
 
@@ -18,14 +18,14 @@ type fakeSearcher struct {
 }
 
 type fakeSearchResult struct {
-	files []domain.FileInfo
-	err   error
+	hits []service.SearchHit
+	err  error
 }
 
-func (f *fakeSearcher) Search(_ context.Context, query string) ([]domain.FileInfo, error) {
+func (f *fakeSearcher) Search(_ context.Context, query string) ([]service.SearchHit, error) {
 	f.calls = append(f.calls, query)
 	if res, ok := f.results[query]; ok {
-		return res.files, res.err
+		return res.hits, res.err
 	}
 	return nil, nil
 }
@@ -41,12 +41,12 @@ var _ = Describe("SearchFiles", func() {
 		uc = usecase.NewSearchFiles(searcher)
 	})
 
-	It("returns files from the searcher on success", func() {
-		want := []domain.FileInfo{
-			{ID: 1, Name: "report.pdf", Size: 2048},
-			{ID: 2, Name: "notes.txt", Size: 512},
+	It("returns hits from the searcher on success", func() {
+		want := []service.SearchHit{
+			{ID: 1, Path: "docs/report.pdf", Size: 2048},
+			{ID: 2, Path: "notes.txt", Size: 512},
 		}
-		searcher.results["report"] = fakeSearchResult{files: want}
+		searcher.results["report"] = fakeSearchResult{hits: want}
 
 		got, err := uc.Execute(context.Background(), "report")
 		Expect(err).NotTo(HaveOccurred())
@@ -64,7 +64,7 @@ var _ = Describe("SearchFiles", func() {
 	})
 
 	It("returns an empty slice when no results match", func() {
-		searcher.results["nothing"] = fakeSearchResult{files: []domain.FileInfo{}}
+		searcher.results["nothing"] = fakeSearchResult{hits: []service.SearchHit{}}
 
 		got, err := uc.Execute(context.Background(), "nothing")
 		Expect(err).NotTo(HaveOccurred())
