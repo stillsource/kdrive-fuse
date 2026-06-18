@@ -42,7 +42,10 @@ make install          # optional: copies both binaries to ~/bin
 
 ## Usage
 
-Point it at a kDrive drive via environment variables:
+Point it at a kDrive drive via environment variables — or put them in a `.env`
+file (copy `.env.example`): both binaries auto-load `.env` from the working
+directory, or the path in `KDRIVE_ENV_FILE`. Real environment variables take
+precedence over the file. Never commit a real `.env` (it holds your token).
 
 ```bash
 export KDRIVE_API_TOKEN="..."
