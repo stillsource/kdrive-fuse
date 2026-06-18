@@ -43,6 +43,10 @@ type Config struct {
 	// Logger is the slog logger handed to the API client for request
 	// diagnostics. Nil leaves the client default (slog.Default).
 	Logger *slog.Logger
+
+	// ReadOnly, when true, makes the FUSE filesystem reject all mutating
+	// operations with EROFS. Reads are unaffected.
+	ReadOnly bool
 }
 
 // Container builds and memoizes the infrastructure object graph from a Config.

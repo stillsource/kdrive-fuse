@@ -79,4 +79,52 @@ var _ = Describe("Config helpers", func() {
 		Expect(d.DiskCacheBytes).To(Equal(int64(3) * 1024 * 1024 * 1024))
 		Expect(d.Logger).To(Equal(log))
 	})
+
+	It("DI propagates ReadOnly=true when set", func() {
+		c := &Config{
+			APIToken: "tok", DriveID: "123",
+			ReadOnly: true,
+		}
+		d := c.DI(slog.Default())
+		Expect(d.ReadOnly).To(BeTrue())
+	})
+
+	It("DI propagates ReadOnly=false (default)", func() {
+		c := &Config{APIToken: "tok", DriveID: "123"}
+		d := c.DI(slog.Default())
+		Expect(d.ReadOnly).To(BeFalse())
+	})
+})
+
+var _ = Describe("KDRIVE_READONLY env", func() {
+	ctx := context.Background()
+
+	It("defaults to false when unset", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN": "tok",
+			"KDRIVE_DRIVE_ID":  "123",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.ReadOnly).To(BeFalse())
+	})
+
+	It("is true when KDRIVE_READONLY=1", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN": "tok",
+			"KDRIVE_DRIVE_ID":  "123",
+			"KDRIVE_READONLY":  "1",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.ReadOnly).To(BeTrue())
+	})
+
+	It("is true when KDRIVE_READONLY=true", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN": "tok",
+			"KDRIVE_DRIVE_ID":  "123",
+			"KDRIVE_READONLY":  "true",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.ReadOnly).To(BeTrue())
+	})
 })

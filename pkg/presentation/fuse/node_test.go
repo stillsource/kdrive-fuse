@@ -43,7 +43,7 @@ func newMountFixture(fake *servicefakes.FilesFake) *mountFixture {
 
 	disk, err := contentcache.NewDiskCache(cache, 1<<20, fake)
 	Expect(err).NotTo(HaveOccurred())
-	kdfs := NewKDriveFS(fake, time.Minute, disk)
+	kdfs := NewKDriveFS(fake, time.Minute, disk, false)
 	root := NewRootDirNode(kdfs, 1)
 
 	ttl := 50 * time.Millisecond
@@ -300,6 +300,109 @@ var _ = Describe("FileNode unit — no mount", func() {
 		errno := f.Setattr(context.Background(), nil, in, &out)
 		Expect(errno).To(BeZero())
 		Expect(f.info.Size).To(Equal(int64(0)))
+	})
+})
+
+var _ = Describe("Read-only mount", func() {
+	var fx *mountFixture
+
+	BeforeEach(func() {
+		fake := baseFake()
+		fake.MkdirResults = map[string]servicefakes.MkdirResult{}
+		fake.DeleteResults = map[int64]error{}
+		fake.RenameResults = map[int64]servicefakes.RenameResult{}
+
+		tmp := GinkgoT().TempDir()
+		mnt := filepath.Join(tmp, "mnt")
+		Expect(os.Mkdir(mnt, 0o755)).To(Succeed())
+		cache := filepath.Join(tmp, "cache")
+
+		disk, err := contentcache.NewDiskCache(cache, 1<<20, fake)
+		Expect(err).NotTo(HaveOccurred())
+		kdfs := NewKDriveFS(fake, time.Minute, disk, true /* readOnly */)
+		root := NewRootDirNode(kdfs, 1)
+
+		ttl := 50 * time.Millisecond
+		srv, err := fs.Mount(mnt, root, &fs.Options{
+			MountOptions: fuse.MountOptions{Name: "kdrive-ro-test", FsName: "kdrive-ro-test"},
+			AttrTimeout:  &ttl,
+			EntryTimeout: &ttl,
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(srv.WaitMount()).To(Succeed())
+
+		DeferCleanup(func() { _ = srv.Unmount() })
+
+		fx = &mountFixture{Dir: mnt, Cache: cache, Fake: fake, KDFS: kdfs, Srv: srv}
+	})
+
+	It("ls (Readdir) still succeeds", func() {
+		entries, err := os.ReadDir(fx.Dir)
+		Expect(err).NotTo(HaveOccurred())
+		names := make([]string, 0, len(entries))
+		for _, e := range entries {
+			names = append(names, e.Name())
+		}
+		Expect(names).To(ConsistOf("hello.txt", "sub"))
+	})
+
+	It("reading an existing file still succeeds", func() {
+		data, err := os.ReadFile(filepath.Join(fx.Dir, "hello.txt"))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(data)).To(Equal("hello world"))
+	})
+
+	It("Mkdir returns EROFS", func() {
+		err := os.Mkdir(filepath.Join(fx.Dir, "newdir"), 0o755)
+		Expect(err).To(HaveOccurred())
+		var pathErr *os.PathError
+		Expect(errors.As(err, &pathErr)).To(BeTrue())
+		Expect(errors.Is(pathErr.Err, syscall.EROFS)).To(BeTrue())
+	})
+
+	It("Create (new file) returns EROFS", func() {
+		_, err := os.Create(filepath.Join(fx.Dir, "new.txt"))
+		Expect(err).To(HaveOccurred())
+		var pathErr *os.PathError
+		Expect(errors.As(err, &pathErr)).To(BeTrue())
+		Expect(errors.Is(pathErr.Err, syscall.EROFS)).To(BeTrue())
+	})
+
+	It("Unlink returns EROFS", func() {
+		err := syscall.Unlink(filepath.Join(fx.Dir, "hello.txt"))
+		Expect(err).To(Equal(syscall.EROFS))
+	})
+
+	It("Rmdir returns EROFS", func() {
+		err := syscall.Rmdir(filepath.Join(fx.Dir, "sub"))
+		Expect(err).To(Equal(syscall.EROFS))
+	})
+
+	It("Rename returns EROFS", func() {
+		err := os.Rename(
+			filepath.Join(fx.Dir, "hello.txt"),
+			filepath.Join(fx.Dir, "renamed.txt"),
+		)
+		Expect(err).To(HaveOccurred())
+		Expect(errors.Is(err, syscall.EROFS)).To(BeTrue())
+	})
+
+	It("Open for writing returns EROFS", func() {
+		err := syscall.Access(filepath.Join(fx.Dir, "hello.txt"), syscall.F_OK)
+		Expect(err).NotTo(HaveOccurred()) // file exists
+		_, err = os.OpenFile(filepath.Join(fx.Dir, "hello.txt"), os.O_WRONLY, 0o644)
+		Expect(err).To(HaveOccurred())
+		var pathErr *os.PathError
+		Expect(errors.As(err, &pathErr)).To(BeTrue())
+		Expect(errors.Is(pathErr.Err, syscall.EROFS)).To(BeTrue())
+	})
+
+	It("Truncate (Setattr size change) returns EROFS", func() {
+		err := os.Truncate(filepath.Join(fx.Dir, "hello.txt"), 0)
+		Expect(err).To(HaveOccurred())
+		var pathErr *os.PathError
+		Expect(errors.As(err, &pathErr)).To(BeTrue())
+		Expect(errors.Is(pathErr.Err, syscall.EROFS)).To(BeTrue())
 	})
 })
 

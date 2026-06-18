@@ -92,6 +92,9 @@ func (d *DirNode) Lookup(ctx context.Context, name string, out *fuse.EntryOut) (
 
 // Mkdir creates a new directory.
 func (d *DirNode) Mkdir(ctx context.Context, name string, _ uint32, out *fuse.EntryOut) (*fs.Inode, syscall.Errno) {
+	if d.kdfs.ReadOnly {
+		return nil, syscall.EROFS
+	}
 	info, err := d.kdfs.MakeDir.Execute(ctx, d.folderID, name)
 	if err != nil {
 		slog.Warn("mkdir failed", "parent", d.folderID, "name", name, "err", err)
@@ -112,6 +115,9 @@ func (d *DirNode) Mkdir(ctx context.Context, name string, _ uint32, out *fuse.En
 // via Lookup and opens it writable, which the write handle treats as an edit
 // (replace) of the existing remote file.
 func (d *DirNode) Create(ctx context.Context, name string, _ uint32, _ uint32, out *fuse.EntryOut) (*fs.Inode, fs.FileHandle, uint32, syscall.Errno) {
+	if d.kdfs.ReadOnly {
+		return nil, nil, 0, syscall.EROFS
+	}
 	// Temporary inode number — stable during the handle's lifetime, replaced on next Lookup.
 	tmpIno := uint64(d.folderID)<<32 ^ uint64(len(name))
 	node := &FileNode{kdfs: d.kdfs, info: domain.FileInfo{Name: name}}
@@ -135,11 +141,17 @@ func (d *DirNode) Create(ctx context.Context, name string, _ uint32, _ uint32, o
 
 // Unlink soft-deletes a file.
 func (d *DirNode) Unlink(ctx context.Context, name string) syscall.Errno {
+	if d.kdfs.ReadOnly {
+		return syscall.EROFS
+	}
 	return d.removeChild(ctx, name, false)
 }
 
 // Rmdir soft-deletes a directory.
 func (d *DirNode) Rmdir(ctx context.Context, name string) syscall.Errno {
+	if d.kdfs.ReadOnly {
+		return syscall.EROFS
+	}
 	return d.removeChild(ctx, name, true)
 }
 
@@ -169,6 +181,9 @@ func (d *DirNode) removeChild(ctx context.Context, name string, wantDir bool) sy
 
 // Rename relocates and/or renames a child.
 func (d *DirNode) Rename(ctx context.Context, name string, newParent fs.InodeEmbedder, newName string, _ uint32) syscall.Errno {
+	if d.kdfs.ReadOnly {
+		return syscall.EROFS
+	}
 	files, err := d.list(ctx)
 	if err != nil {
 		return syscall.EIO

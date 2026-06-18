@@ -166,7 +166,7 @@ var _ = Describe("readHandle", func() {
 		}
 		ctx = context.Background()
 		disk, _ := contentcache.NewDiskCache(dir, 1024, fake)
-		kdfs = NewKDriveFS(fake, time.Second, disk)
+		kdfs = NewKDriveFS(fake, time.Second, disk, false)
 	})
 
 	It("Read serves requested offset and length", func() {
