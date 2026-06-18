@@ -10,7 +10,7 @@ func (c *Container) KDriveFS() (*fuse.KDriveFS, error) {
 		if err != nil {
 			return nil, err
 		}
-		c.kdfs = fuse.NewKDriveFS(c.Client().Files, c.cfg.CacheTTL, content)
+		c.kdfs = fuse.NewKDriveFS(c.Client().Files, c.cfg.CacheTTL, content, c.cfg.ReadOnly)
 	}
 	return c.kdfs, nil
 }

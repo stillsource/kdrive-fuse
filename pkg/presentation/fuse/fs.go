@@ -36,11 +36,18 @@ type KDriveFS struct {
 	// parent dir). Default to the process owner — the user who ran the mount.
 	Uid uint32
 	Gid uint32
+
+	// ReadOnly, when true, causes all mutating operations (Create, Mkdir,
+	// Unlink, Rmdir, Rename, writable Open, and size-changing Setattr) to
+	// return EROFS instead of forwarding to the remote. Read operations are
+	// unaffected.
+	ReadOnly bool
 }
 
 // NewKDriveFS is the FUSE composition root: it builds the listing cache and
 // wires every use case over the given remote client and content cache.
-func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk service.ContentCache) *KDriveFS {
+// readOnly, when true, makes every mutating operation return EROFS.
+func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk service.ContentCache, readOnly bool) *KDriveFS {
 	listing := listingcache.NewDirCache(cacheTTL)
 	return &KDriveFS{
 		ListDir:     usecase.NewListDir(files, listing),
@@ -52,6 +59,7 @@ func NewKDriveFS(files fileClient, cacheTTL time.Duration, disk service.ContentC
 		MakeDir:     usecase.NewMakeDir(files, listing),
 		Uid:         uint32(os.Getuid()),
 		Gid:         uint32(os.Getgid()),
+		ReadOnly:    readOnly,
 	}
 }
 

@@ -53,6 +53,7 @@ export KDRIVE_ROOT_FOLDER_ID="1"                 # default: drive root
 export KDRIVE_DISK_CACHE_DIR="$HOME/.cache/kdrive-fuse"
 export KDRIVE_DISK_CACHE_MAX_GB="2"
 export KDRIVE_CACHE_TTL_SECONDS="30"
+export KDRIVE_READONLY="1"                       # mount read-only (reject all writes with EROFS)
 
 kdrive-fuse
 ```

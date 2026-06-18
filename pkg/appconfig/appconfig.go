@@ -25,6 +25,7 @@ type Config struct {
 	CacheTTLSecs   int    `env:"KDRIVE_CACHE_TTL_SECONDS,default=30"`
 	DiskCacheDir   string `env:"KDRIVE_DISK_CACHE_DIR,default="`
 	DiskCacheMaxGB int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
+	ReadOnly       bool   `env:"KDRIVE_READONLY,default=false"`
 }
 
 // Load reads the shared KDRIVE_* environment into a Config.
@@ -64,5 +65,6 @@ func (c *Config) DI(logger *slog.Logger) di.Config {
 		DiskCacheDir:   c.CacheDir(),
 		DiskCacheBytes: int64(c.DiskCacheMaxGB) * 1024 * 1024 * 1024,
 		Logger:         logger,
+		ReadOnly:       c.ReadOnly,
 	}
 }

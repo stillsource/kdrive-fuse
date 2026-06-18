@@ -45,6 +45,11 @@ func (f *FileNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut
 
 // Setattr accepts size/time updates as no-ops so truncate-on-open succeeds.
 func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrIn, out *fuse.AttrOut) syscall.Errno {
+	if f.kdfs.ReadOnly {
+		if _, ok := in.GetSize(); ok {
+			return syscall.EROFS
+		}
+	}
 	if size, ok := in.GetSize(); ok {
 		f.info.Size = int64(size)
 		// The kernel delivers O_TRUNC as a path-based Setattr (no file handle)
@@ -70,6 +75,9 @@ func (f *FileNode) Setattr(_ context.Context, _ fs.FileHandle, in *fuse.SetAttrI
 // empty; an edit pulls remote content lazily on the first Write (see seedLocked).
 func (f *FileNode) Open(_ context.Context, flags uint32) (fs.FileHandle, uint32, syscall.Errno) {
 	writable := flags&(syscall.O_WRONLY|syscall.O_RDWR) != 0
+	if f.kdfs.ReadOnly && writable {
+		return nil, 0, syscall.EROFS
+	}
 	truncate := flags&syscall.O_TRUNC != 0
 
 	if !writable {
