@@ -31,7 +31,7 @@ fusermount -u ~/kDrive-vfs                         # manual unmount
 
 Shared `KDRIVE_*` env (loaded by both binaries via `pkg/appconfig`):
 Required: `KDRIVE_API_TOKEN`, `KDRIVE_DRIVE_ID`.
-Optional: `KDRIVE_ROOT_FOLDER_ID` (default `1`), `KDRIVE_BASE_URL`, `KDRIVE_UPLOAD_BASE_URL`, `KDRIVE_CACHE_TTL_SECONDS` (default `30`), `KDRIVE_DISK_CACHE_DIR` (default `~/.cache/kdrive-fuse`), `KDRIVE_DISK_CACHE_MAX_GB` (default `2`), `KDRIVE_READONLY` (default `false`; set to `1` or `true` to reject all writes with EROFS).
+Optional: `KDRIVE_ROOT_FOLDER_ID` (default `1`), `KDRIVE_BASE_URL`, `KDRIVE_UPLOAD_BASE_URL`, `KDRIVE_CACHE_TTL_SECONDS` (default `30`), `KDRIVE_DISK_CACHE_DIR` (default `~/.cache/kdrive-fuse`), `KDRIVE_DISK_CACHE_MAX_GB` (default `2`), `KDRIVE_READONLY` (default `false`; set to `1` or `true` to reject all writes with EROFS), `KDRIVE_LOG_FORMAT` (default `text`; set to `json` for structured jq-friendly logs).
 
 Daemon-only env (loaded by `cmd/kdrive-fuse/config`):
 Required: `KDRIVE_MOUNT`.

@@ -1,6 +1,7 @@
 package appconfig
 
 import (
+	"bytes"
 	"context"
 	"log/slog"
 	"time"
@@ -126,5 +127,70 @@ var _ = Describe("KDRIVE_READONLY env", func() {
 		}))
 		Expect(err).NotTo(HaveOccurred())
 		Expect(c.ReadOnly).To(BeTrue())
+	})
+})
+
+var _ = Describe("KDRIVE_LOG_FORMAT env", func() {
+	ctx := context.Background()
+
+	It("defaults to text when unset", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN": "tok",
+			"KDRIVE_DRIVE_ID":  "123",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.LogFormat).To(Equal("text"))
+	})
+
+	It("parses json when KDRIVE_LOG_FORMAT=json", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN":  "tok",
+			"KDRIVE_DRIVE_ID":   "123",
+			"KDRIVE_LOG_FORMAT": "json",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.LogFormat).To(Equal("json"))
+	})
+})
+
+var _ = Describe("Config.NewLogger", func() {
+	It("returns a JSON logger when LogFormat is json", func() {
+		var buf bytes.Buffer
+		c := &Config{LogFormat: "json"}
+		logger := c.NewLogger(&buf)
+		logger.Info("hello")
+		line := buf.String()
+		Expect(line).To(HavePrefix("{"))
+		Expect(line).To(ContainSubstring(`"msg"`))
+	})
+
+	It("returns a text logger when LogFormat is text", func() {
+		var buf bytes.Buffer
+		c := &Config{LogFormat: "text"}
+		logger := c.NewLogger(&buf)
+		logger.Info("hello")
+		line := buf.String()
+		Expect(line).To(ContainSubstring("msg="))
+		Expect(line).NotTo(HavePrefix("{"))
+	})
+
+	It("falls back to text for an unrecognized value", func() {
+		var buf bytes.Buffer
+		c := &Config{LogFormat: "xml"}
+		logger := c.NewLogger(&buf)
+		logger.Info("hello")
+		line := buf.String()
+		Expect(line).To(ContainSubstring("msg="))
+		Expect(line).NotTo(HavePrefix("{"))
+	})
+
+	It("is case-insensitive for JSON", func() {
+		var buf bytes.Buffer
+		c := &Config{LogFormat: "JSON"}
+		logger := c.NewLogger(&buf)
+		logger.Info("hello")
+		line := buf.String()
+		Expect(line).To(HavePrefix("{"))
+		Expect(line).To(ContainSubstring(`"msg"`))
 	})
 })

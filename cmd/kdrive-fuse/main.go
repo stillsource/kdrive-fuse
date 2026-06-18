@@ -52,6 +52,9 @@ func main() {
 		os.Exit(1)
 	}
 
+	log = app.NewLogger(os.Stderr)
+	slog.SetDefault(log)
+
 	c := di.NewContainer(app.DI(log))
 	root, err := c.RootNode()
 	if err != nil {
