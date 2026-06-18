@@ -121,6 +121,39 @@ kdrive share "Photos/2024/cat.jpg"
 # https://kdrive.infomaniak.com/app/share/...
 ```
 
+### trash
+
+```
+kdrive trash <subcommand> [arguments]
+```
+
+Browse and manage the kDrive trash without a FUSE mount. The four subcommands cover the full lifecycle of trashed items.
+
+| Subcommand | Description |
+|---|---|
+| `list` | Print all trashed items (id, name, size) |
+| `restore <FILE_ID>` | Restore a trashed item to its original location |
+| `purge <FILE_ID> --yes` | Permanently delete one trashed item (irreversible) |
+| `empty --yes` | Permanently empty the entire trash (irreversible) |
+
+The `--yes` flag is required for `purge` and `empty` to prevent accidental data loss; omitting it prints a warning and exits 1.
+
+```bash
+# List what is in the trash:
+kdrive trash list
+
+# Restore a specific item by its id:
+kdrive trash restore 42
+
+# Permanently delete one item (requires --yes):
+kdrive trash purge 42 --yes
+
+# Permanently empty the whole trash (requires --yes):
+kdrive trash empty --yes
+```
+
+**Note on endpoints:** the Infomaniak Android app lists trash on a v3 path; this client appends `/trash` to the same v2 base it uses for all other routes. Verify against the live API before relying on write operations. Read operations (`list`) are safe to run without risk.
+
 **Change detection — manifest baseline.** Push tracks state in a TSV manifest at `$XDG_STATE_HOME/kdrive/<hash>.tsv` (falling back to `~/.local/state/kdrive/`), keyed by a hash of the (local root, remote root) pair. Each entry records size, local mtime, remote file ID, and remote mtime from the last sync. On a steady-state push the planner compares local size + mtime against the manifest: a file is unchanged, an overwrite, a new upload, or a delete — no remote listing required, because the manifest carries remote IDs.
 
 The kDrive API exposes no content hash for existing files, which is why size + mtime is used as the change signal rather than a checksum. Use `--verify` to confirm presence and size correctness after a push.
@@ -143,7 +176,7 @@ On the first push to a non-empty remote (or with `--refresh`), `kdrive sync` boo
 | Move | ✅ | |
 | Share | ✅ | get-or-create public link |
 | Chunked upload (> 100 MB) | ✅ | upload-session flow, 50 MB chunks, per-chunk retry |
-| Trash browsing | ❌ | roadmap |
+| Trash browsing / management | ✅ | `kdrive trash` (list/restore/purge/empty) |
 | xattrs for kDrive metadata | ❌ | roadmap |
 
 In-place rewrites through the mount (`echo > existing`, truncating edits) are committed on close: the working file is filled lazily and uploaded once the content is final, so the kernel's FLUSH/WRITE ordering can't drop data.

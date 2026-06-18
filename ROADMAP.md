@@ -62,6 +62,11 @@ Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infras
 ### `kdrive share REMOTE_PATH` CLI
 `kdrive share` resolves a remote path to its file ID (read-only listing, never creates directories), calls `usecase.ShareFile` which wraps `client.Shares.Publish`, and prints the public URL to stdout. Useful for scripts. Wired in `pkg/presentation/cli/share.go`.
 
+### `kdrive trash` CLI (list/restore/purge/empty)
+Delivered as a `kdrive trash` CLI subcommand rather than a FUSE virtual `.trash/` directory (to avoid overloading `rm`/`mv` with destructive/restore semantics that would surprise users). Four operations: `list` (read-only, safe to run), `restore <FILE_ID>`, `purge <FILE_ID> --yes` (permanent single-item delete), `empty --yes` (permanent full-empty). Destructive operations require `--yes` and refuse otherwise with a warning. Wired in `pkg/presentation/cli/trash.go`; backed by four new methods on `*kdriveapi.FilesService` (`ListTrash`, `RestoreTrash`, `PurgeTrash`, `EmptyTrash`) in `pkg/infrastructure/kdriveapi/trash.go`.
+
+**Endpoint note:** the Infomaniak Android app lists trash on a v3 path (`GET /3/drive/{id}/trash`); this client appends `/trash` to the same v2 base used for all other routes (`GET /2/drive/{id}/trash`). Verify read-only `list` against the live API first; the v2 path should work for the operations that are non-destructive on a wrong endpoint — they just error.
+
 ### xattrs for kDrive metadata
 `FileNode` exposes read-only extended attributes via `fs.NodeGetxattrer` + `fs.NodeListxattrer`:
 - `user.kdrive.id` — numeric file ID
@@ -71,12 +76,6 @@ Supporting packages: `pkg/appconfig` (shared `KDRIVE_*` env loader), `pkg/infras
 `getfattr -d <file>` is now a useful scripting primitive. Pure helpers live in `pkg/presentation/fuse/xattr.go`; the interfaces are wired on `FileNode` only (`DirNode` has only a folder ID, not full metadata). Two attributes were intentionally omitted: `user.kdrive.share_url` (generating a public link as a side-effect of reading an xattr would publish every file on `getfattr -d` — a footgun; use `kdrive share` instead) and `user.kdrive.created_by` (not present in `domain.FileInfo`).
 
 ---
-
-## UX
-
-### `.trash/` virtual directory
-Expose the kDrive trash as `~/kDrive-vfs/.trash/` via `GET /files/trash`. `rm .trash/x` purges permanently, `mv .trash/x /target/` restores. Needs a dedicated trash endpoint family in the API.
-
 
 ---
 
