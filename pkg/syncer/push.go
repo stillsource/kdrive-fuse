@@ -2,21 +2,30 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 
+	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/manifest"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/remoteindex"
 	"github.com/stillsource/kdrive-fuse/pkg/service"
 )
 
+// fileStater stats a remote file by id (used to detect remote drift before a
+// push overwrites or deletes it).
+type fileStater interface {
+	Stat(ctx context.Context, fileID int64) (domain.FileInfo, error)
+}
+
 // FilesPort is the remote surface Push needs. It is satisfied by the kDrive API
-// client's *FilesService (which implements all four embedded interfaces).
+// client's *FilesService (which implements all embedded interfaces).
 type FilesPort interface {
 	remoteindex.Lister
 	remoteindex.Mkdirer
 	service.FileWriter
 	fileDeleter
+	fileStater
 }
 
 // PushOptions configures a push run.
@@ -57,6 +66,12 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 	if opts.NoDelete {
 		items = dropDeletes(items)
 	}
+	if !opts.Force {
+		items, err = filterPushDrift(ctx, items, m, files, out)
+		if err != nil {
+			return Result{}, err
+		}
+	}
 	if err := GuardDeletes(items, m.Len(), opts.DeleteThreshold, opts.Force); err != nil {
 		return Result{}, err
 	}
@@ -71,6 +86,41 @@ func Push(ctx context.Context, opts PushOptions, files FilesPort, rootID int64, 
 		return res, fmt.Errorf("save manifest: %w", err)
 	}
 	return res, nil
+}
+
+// filterPushDrift drops overwrite/delete items whose remote file diverged from
+// the manifest baseline since the last sync (an out-of-band edit), warning on
+// each, so a push never silently clobbers a remote change. New uploads are never
+// dropped. A missing remote is treated as drift for an overwrite (the file
+// vanished) and as already-done for a delete. It returns an error only on an
+// unexpected stat failure.
+func filterPushDrift(ctx context.Context, items []Item, m *manifest.Manifest, st fileStater, out io.Writer) ([]Item, error) {
+	kept := make([]Item, 0, len(items))
+	for _, it := range items {
+		if it.Op != OpOverwrite && it.Op != OpDelete {
+			kept = append(kept, it)
+			continue
+		}
+		info, err := st.Stat(ctx, it.RemoteID)
+		if errors.Is(err, domain.ErrNotFound) {
+			if it.Op == OpDelete {
+				kept = append(kept, it) // already gone; the idempotent delete no-ops
+			} else {
+				_, _ = fmt.Fprintf(out, "skip (remote gone): %s\n", it.Rel)
+			}
+			continue
+		}
+		if err != nil {
+			return nil, fmt.Errorf("check remote drift for %s: %w", it.Rel, err)
+		}
+		e, _ := m.Get(it.Rel)
+		if info.LastModifiedAt != e.RemoteMtime || info.Size != e.Size {
+			_, _ = fmt.Fprintf(out, "skip (remote changed): %s\n", it.Rel)
+			continue
+		}
+		kept = append(kept, it)
+	}
+	return kept, nil
 }
 
 func dropDeletes(items []Item) []Item {

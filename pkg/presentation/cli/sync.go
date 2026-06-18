@@ -36,7 +36,7 @@ Flags:
   --pull        mirror remote -> local instead of local -> remote
   --dry-run     classify and print the plan; change nothing
   --no-delete   never delete on the destination
-  --force       override the deletion guard (and, on pull, the local-drift guard)
+  --force       override the deletion guard, the push remote-drift guard, and (on pull) the local-drift guard
   --delete-threshold F  refuse to delete more than fraction F of the baseline (default 0.20)
   --assume-new  (push only) skip the first-run bootstrap; treat every local file as new
   --refresh     (push only) re-bootstrap the manifest from a fresh remote index

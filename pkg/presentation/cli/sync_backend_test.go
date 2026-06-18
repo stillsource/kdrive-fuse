@@ -46,6 +46,17 @@ func (f *fakeSyncFiles) Upload(_ context.Context, in service.UploadInput) (domai
 
 func (f *fakeSyncFiles) Delete(context.Context, int64) error { return nil }
 
+func (f *fakeSyncFiles) Stat(_ context.Context, fileID int64) (domain.FileInfo, error) {
+	for _, children := range f.listing {
+		for _, info := range children {
+			if info.ID == fileID {
+				return info, nil
+			}
+		}
+	}
+	return domain.FileInfo{}, domain.ErrNotFound
+}
+
 func (f *fakeSyncFiles) DownloadStream(_ context.Context, fileID, _, _ int64) (io.ReadCloser, error) {
 	b, ok := f.content[fileID]
 	if !ok {
