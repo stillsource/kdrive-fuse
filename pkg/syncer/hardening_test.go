@@ -139,7 +139,7 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 			{Rel: "a", Op: syncer.OpUpload, Size: 1},
 			{Rel: "b", Op: syncer.OpUpload, Size: 1},
 		}
-		res := syncer.RunPush(ctx, items, ex, m, 2)
+		res := syncer.RunPush(ctx, items, ex, m, 2, nil)
 		Expect(res.Failed).To(Equal(2))
 		Expect(res.Uploaded).To(Equal(0))
 		Expect(ex.uploads).To(BeEmpty())
@@ -152,7 +152,7 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 		m := manifest.New()
 		actor := &fakePullActor{fail: map[string]bool{}}
 		items := []syncer.PullItem{{Rel: "a", Op: syncer.PullDownload, RemoteID: 1}}
-		res := syncer.RunPull(ctx, items, actor, m, 2)
+		res := syncer.RunPull(ctx, items, actor, m, 2, nil)
 		Expect(res.Failed).To(Equal(1))
 		Expect(res.Downloaded).To(Equal(0))
 		Expect(actor.downloads).To(BeEmpty())
@@ -161,14 +161,14 @@ var _ = Describe("hardening: cancellation and job clamps", func() {
 	It("RunPush clamps jobs<1 to 1 and still processes items (L1)", func() {
 		m := manifest.New()
 		ex := &fakeExec{fail: map[string]bool{}}
-		res := syncer.RunPush(context.Background(), []syncer.Item{{Rel: "a", Op: syncer.OpUpload, Size: 1}}, ex, m, 0)
+		res := syncer.RunPush(context.Background(), []syncer.Item{{Rel: "a", Op: syncer.OpUpload, Size: 1}}, ex, m, 0, nil)
 		Expect(res.Uploaded).To(Equal(1))
 	})
 
 	It("RunPull clamps jobs<1 to 1 and still processes items (L1)", func() {
 		m := manifest.New()
 		actor := &fakePullActor{fail: map[string]bool{}}
-		res := syncer.RunPull(context.Background(), []syncer.PullItem{{Rel: "a", Op: syncer.PullDeleteLocal}}, actor, m, 0)
+		res := syncer.RunPull(context.Background(), []syncer.PullItem{{Rel: "a", Op: syncer.PullDeleteLocal}}, actor, m, 0, nil)
 		Expect(res.Deleted).To(Equal(1))
 	})
 })

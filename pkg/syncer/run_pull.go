@@ -2,7 +2,9 @@ package syncer
 
 import (
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"sync"
@@ -44,7 +46,7 @@ type pullOutcome struct {
 // the manifest as each action succeeds. A failed action leaves its manifest
 // entry untouched so a re-run retries it. Manifest mutation is serialized on the
 // calling goroutine; the in-memory manifest is updated but not persisted.
-func RunPull(ctx context.Context, items []PullItem, actor PullActor, m *manifest.Manifest, jobs int) PullResult {
+func RunPull(ctx context.Context, items []PullItem, actor PullActor, m *manifest.Manifest, jobs int, checkpoint func()) PullResult {
 	if jobs < 1 {
 		jobs = 1
 	}
@@ -87,6 +89,17 @@ func RunPull(ctx context.Context, items []PullItem, actor PullActor, m *manifest
 	}()
 
 	var res PullResult
+	since := 0
+	maybeCheckpoint := func() {
+		if checkpoint == nil {
+			return
+		}
+		since++
+		if since >= checkpointInterval {
+			checkpoint()
+			since = 0
+		}
+	}
 	for o := range out {
 		if o.err != nil {
 			res.Failed++
@@ -102,9 +115,11 @@ func RunPull(ctx context.Context, items []PullItem, actor PullActor, m *manifest
 				RemoteMtime: o.item.RemoteMtime,
 			})
 			res.Downloaded++
+			maybeCheckpoint()
 		case PullDeleteLocal:
 			m.Delete(o.item.Rel)
 			res.Deleted++
+			maybeCheckpoint()
 		}
 	}
 	return res
@@ -161,9 +176,14 @@ func (e *PullExecutor) Download(ctx context.Context, rel string, remoteID int64)
 	return n, info.ModTime().Unix(), nil
 }
 
-// DeleteLocal removes the local file at rel.
+// DeleteLocal removes the local file at rel. Removing an already-gone file is
+// treated as success, so a re-run after a crash that removed it without
+// checkpointing the manifest completes cleanly.
 func (e *PullExecutor) DeleteLocal(rel string) error {
-	return os.Remove(e.local(rel))
+	if err := os.Remove(e.local(rel)); err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func (e *PullExecutor) local(rel string) string {

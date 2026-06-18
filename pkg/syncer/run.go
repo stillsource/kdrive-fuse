@@ -38,12 +38,16 @@ type outcome struct {
 	err         error
 }
 
+// checkpointInterval is how many successful operations RunPush/RunPull apply
+// before flushing the manifest to disk, bounding re-work after a crash.
+const checkpointInterval = 64
+
 // RunPush executes items with up to jobs concurrent Executor calls, updating the
 // manifest as each action succeeds. A failed action leaves its manifest entry
 // untouched so a re-run retries it. Manifest mutation is serialized on the
 // calling goroutine (the manifest is not safe for concurrent writes); the
 // in-memory manifest is updated but not persisted (the caller saves it).
-func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifest, jobs int) Result {
+func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifest, jobs int, checkpoint func()) Result {
 	if jobs < 1 {
 		jobs = 1
 	}
@@ -88,6 +92,17 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 	}()
 
 	var res Result
+	since := 0
+	maybeCheckpoint := func() {
+		if checkpoint == nil {
+			return
+		}
+		since++
+		if since >= checkpointInterval {
+			checkpoint()
+			since = 0
+		}
+	}
 	for o := range out {
 		if o.err != nil {
 			res.Failed++
@@ -107,9 +122,11 @@ func RunPush(ctx context.Context, items []Item, ex Executor, m *manifest.Manifes
 			} else {
 				res.Overwritten++
 			}
+			maybeCheckpoint()
 		case OpDelete:
 			m.Delete(o.item.Rel)
 			res.Deleted++
+			maybeCheckpoint()
 		}
 	}
 	return res

@@ -53,7 +53,7 @@ var _ = Describe("Load and Save", func() {
 		Expect(m.Save(path)).To(Succeed())
 		data, err := os.ReadFile(path)
 		Expect(err).NotTo(HaveOccurred())
-		Expect(string(data)).To(Equal("1\t0\t0\t0\ta\n1\t0\t0\t0\tb\n1\t0\t0\t0\tc\n"))
+		Expect(string(data)).To(Equal("# kdrive-manifest v1\n1\t0\t0\t0\ta\n1\t0\t0\t0\tb\n1\t0\t0\t0\tc\n"))
 	})
 
 	It("preserves a tab inside a path name", func() {
@@ -88,5 +88,40 @@ var _ = Describe("Load and Save", func() {
 		Expect(os.WriteFile(path, []byte("0\t0\t0\t0\t\n"), 0o644)).To(Succeed())
 		_, err := manifest.Load(path)
 		Expect(err).To(HaveOccurred())
+	})
+
+	It("writes a version header and round-trips through it", func() {
+		p := filepath.Join(dir, "m.tsv")
+		m := manifest.New()
+		m.Set("a.jpg", manifest.Entry{Size: 1, LocalMtime: 2, RemoteID: 3, RemoteMtime: 4})
+		Expect(m.Save(p)).To(Succeed())
+
+		raw, err := os.ReadFile(p)
+		Expect(err).NotTo(HaveOccurred())
+		Expect(string(raw)).To(HavePrefix("# kdrive-manifest v1\n"))
+
+		got, err := manifest.Load(p)
+		Expect(err).NotTo(HaveOccurred())
+		e, ok := got.Get("a.jpg")
+		Expect(ok).To(BeTrue())
+		Expect(e).To(Equal(manifest.Entry{Size: 1, LocalMtime: 2, RemoteID: 3, RemoteMtime: 4}))
+	})
+
+	It("loads a legacy headerless manifest", func() {
+		p := filepath.Join(dir, "legacy.tsv")
+		Expect(os.WriteFile(p, []byte("5\t6\t7\t8\tb.jpg\n"), 0o644)).To(Succeed())
+		got, err := manifest.Load(p)
+		Expect(err).NotTo(HaveOccurred())
+		e, ok := got.Get("b.jpg")
+		Expect(ok).To(BeTrue())
+		Expect(e).To(Equal(manifest.Entry{Size: 5, LocalMtime: 6, RemoteID: 7, RemoteMtime: 8}))
+	})
+
+	It("rejects an unsupported format version", func() {
+		p := filepath.Join(dir, "future.tsv")
+		Expect(os.WriteFile(p, []byte("# kdrive-manifest v2\n1\t2\t3\t4\tc.jpg\n"), 0o644)).To(Succeed())
+		_, err := manifest.Load(p)
+		Expect(err).To(HaveOccurred())
+		Expect(err.Error()).To(ContainSubstring("unsupported format version"))
 	})
 })

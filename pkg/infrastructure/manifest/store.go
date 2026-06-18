@@ -10,6 +10,11 @@ import (
 	"strings"
 )
 
+// formatHeader is the first line written to every manifest, so a future format
+// change can migrate the file rather than break it. Legacy files (no header)
+// load as v1.
+const formatHeader = "# kdrive-manifest v1"
+
 // Load reads a manifest from path. A missing file yields an empty manifest and
 // a nil error — the first sync has no baseline yet.
 func Load(path string) (*Manifest, error) {
@@ -31,6 +36,14 @@ func Load(path string) (*Manifest, error) {
 		text := sc.Text()
 		if text == "" {
 			continue
+		}
+		if strings.HasPrefix(text, "#") {
+			if v, ok := strings.CutPrefix(text, "# kdrive-manifest "); ok {
+				if ver := strings.TrimSpace(v); ver != "v1" {
+					return nil, fmt.Errorf("manifest: %s: unsupported format version %q", path, ver)
+				}
+			}
+			continue // header or comment line — never a data record
 		}
 		e, rel, err := parseLine(text)
 		if err != nil {
@@ -75,7 +88,7 @@ func (m *Manifest) Save(path string) error {
 		return fmt.Errorf("manifest: mkdir %s: %w", dir, err)
 	}
 
-	var data []byte
+	data := []byte(formatHeader + "\n")
 	for _, rel := range m.sortedKeys() {
 		e := m.entries[rel]
 		data = fmt.Appendf(data, "%d\t%d\t%d\t%d\t%s\n", e.Size, e.LocalMtime, e.RemoteID, e.RemoteMtime, rel)
