@@ -300,6 +300,18 @@ var _ = Describe("DirNode unit — no mount", func() {
 		Expect(out.Owner.Gid).To(Equal(uint32(4343)))
 	})
 
+	It("Statfs reports a 255-byte name limit and ample space so GUI managers allow names", func() {
+		// Regression: with no Statfs, go-fuse leaves NameLen=0; GUI file managers
+		// query f_namemax before creating and reject every name (even 1 char) as
+		// "too long". 255 matches domain.ValidateName's byte cap.
+		d := &DirNode{kdfs: &KDriveFS{}}
+		var out fuse.StatfsOut
+		Expect(d.Statfs(context.Background(), &out)).To(BeZero())
+		Expect(out.NameLen).To(Equal(uint32(255)))
+		Expect(out.Bsize).NotTo(BeZero())  // coherent block size (no div-by-zero in df)
+		Expect(out.Bavail).NotTo(BeZero()) // space available, not reported as full
+	})
+
 	It("list propagates API errors", func() {
 		fake := &servicefakes.FilesFake{
 			ListResults: map[int64]servicefakes.ListResult{1: {Err: domain.ErrNotFound}},

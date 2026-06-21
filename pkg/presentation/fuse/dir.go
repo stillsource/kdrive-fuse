@@ -27,12 +27,31 @@ var _ fs.NodeMkdirer = (*DirNode)(nil)
 var _ fs.NodeUnlinker = (*DirNode)(nil)
 var _ fs.NodeRmdirer = (*DirNode)(nil)
 var _ fs.NodeRenamer = (*DirNode)(nil)
+var _ fs.NodeStatfser = (*DirNode)(nil)
 
 // Getattr returns directory attributes.
 func (d *DirNode) Getattr(_ context.Context, _ fs.FileHandle, out *fuse.AttrOut) syscall.Errno {
 	out.Mode = 0o755 | syscall.S_IFDIR
 	d.kdfs.applyOwner(&out.Attr)
 	out.SetTimeout(30 * time.Second)
+	return 0
+}
+
+// Statfs reports filesystem-level statistics. The load-bearing field is NameLen:
+// without a Statfs handler, go-fuse leaves it 0, and GUI file managers query
+// f_namemax (statvfs) before creating an entry — seeing 0, they reject every
+// name as "too long", even a single character (`mkdir` from a shell still works
+// because it does not consult f_namemax). We report 255, kDrive's name limit and
+// the cap enforced by domain.ValidateName. Bsize and a large nominal free space
+// keep df and file managers coherent; the real quota is enforced server-side.
+func (d *DirNode) Statfs(_ context.Context, out *fuse.StatfsOut) syscall.Errno {
+	const blocks uint64 = 1 << 32 // ~16 TiB of 4 KiB blocks — nominal "space available"
+	out.NameLen = 255
+	out.Bsize = 4096
+	out.Frsize = 4096
+	out.Blocks = blocks
+	out.Bfree = blocks
+	out.Bavail = blocks
 	return 0
 }
 
