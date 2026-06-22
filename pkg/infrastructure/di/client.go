@@ -17,6 +17,9 @@ func (c *Container) Client() *kdriveapi.Client {
 		if c.cfg.Metrics != nil {
 			opts = append(opts, kdriveapi.WithMetrics(c.cfg.Metrics))
 		}
+		if c.cfg.UploadParallelism > 0 {
+			opts = append(opts, kdriveapi.WithUploadParallelism(c.cfg.UploadParallelism))
+		}
 		c.client = kdriveapi.New(c.cfg.Token, c.cfg.DriveID, opts...)
 	}
 	return c.client

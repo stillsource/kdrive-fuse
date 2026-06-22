@@ -19,18 +19,19 @@ import (
 
 // Config holds the environment knobs common to every kdrive binary.
 type Config struct {
-	APIToken        string `env:"KDRIVE_API_TOKEN,required"`
-	DriveID         string `env:"KDRIVE_DRIVE_ID,required"`
-	RootFolderID    int64  `env:"KDRIVE_ROOT_FOLDER_ID,default=1"`
-	BaseURL         string `env:"KDRIVE_BASE_URL,default=https://api.infomaniak.com/2/drive"`
-	UploadBaseURL   string `env:"KDRIVE_UPLOAD_BASE_URL,default=https://api.kdrive.infomaniak.com/2/drive"`
-	CacheTTLSecs    int    `env:"KDRIVE_CACHE_TTL_SECONDS,default=30"`
-	DiskCacheDir    string `env:"KDRIVE_DISK_CACHE_DIR,default="`
-	DiskCacheMaxGB  int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
-	ReadOnly        bool   `env:"KDRIVE_READONLY,default=false"`
-	LogFormat       string `env:"KDRIVE_LOG_FORMAT,default=text"`
-	MetricsAddr     string `env:"KDRIVE_METRICS_ADDR,default="`
-	WalkParallelism int    `env:"KDRIVE_WALK_PARALLELISM,default=8"`
+	APIToken          string `env:"KDRIVE_API_TOKEN,required"`
+	DriveID           string `env:"KDRIVE_DRIVE_ID,required"`
+	RootFolderID      int64  `env:"KDRIVE_ROOT_FOLDER_ID,default=1"`
+	BaseURL           string `env:"KDRIVE_BASE_URL,default=https://api.infomaniak.com/2/drive"`
+	UploadBaseURL     string `env:"KDRIVE_UPLOAD_BASE_URL,default=https://api.kdrive.infomaniak.com/2/drive"`
+	CacheTTLSecs      int    `env:"KDRIVE_CACHE_TTL_SECONDS,default=30"`
+	DiskCacheDir      string `env:"KDRIVE_DISK_CACHE_DIR,default="`
+	DiskCacheMaxGB    int    `env:"KDRIVE_DISK_CACHE_MAX_GB,default=2"`
+	ReadOnly          bool   `env:"KDRIVE_READONLY,default=false"`
+	LogFormat         string `env:"KDRIVE_LOG_FORMAT,default=text"`
+	MetricsAddr       string `env:"KDRIVE_METRICS_ADDR,default="`
+	WalkParallelism   int    `env:"KDRIVE_WALK_PARALLELISM,default=8"`
+	UploadParallelism int    `env:"KDRIVE_UPLOAD_PARALLELISM,default=4"`
 }
 
 // Load reads the shared KDRIVE_* environment into a Config. Before reading, it
@@ -79,15 +80,16 @@ func (c *Config) NewLogger(w io.Writer) *slog.Logger {
 // attaching the given logger.
 func (c *Config) DI(logger *slog.Logger) di.Config {
 	return di.Config{
-		Token:          c.APIToken,
-		DriveID:        c.DriveID,
-		RootFolderID:   c.RootFolderID,
-		BaseURL:        c.BaseURL,
-		UploadBaseURL:  c.UploadBaseURL,
-		CacheTTL:       time.Duration(c.CacheTTLSecs) * time.Second,
-		DiskCacheDir:   c.CacheDir(),
-		DiskCacheBytes: int64(c.DiskCacheMaxGB) * 1024 * 1024 * 1024,
-		Logger:         logger,
-		ReadOnly:       c.ReadOnly,
+		Token:             c.APIToken,
+		DriveID:           c.DriveID,
+		RootFolderID:      c.RootFolderID,
+		BaseURL:           c.BaseURL,
+		UploadBaseURL:     c.UploadBaseURL,
+		CacheTTL:          time.Duration(c.CacheTTLSecs) * time.Second,
+		DiskCacheDir:      c.CacheDir(),
+		DiskCacheBytes:    int64(c.DiskCacheMaxGB) * 1024 * 1024 * 1024,
+		Logger:            logger,
+		ReadOnly:          c.ReadOnly,
+		UploadParallelism: c.UploadParallelism,
 	}
 }

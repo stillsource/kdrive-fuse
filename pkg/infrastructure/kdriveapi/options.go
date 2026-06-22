@@ -40,13 +40,17 @@ func WithHTTPClient(c *http.Client) Option {
 	}
 }
 
-// WithUploadTimeout sets the timeout of the dedicated upload HTTP client, leaving
-// the read client untouched. Uploads of large files (or slow/degraded kDrive
-// responses) need more headroom than the 60s read timeout. Default: 2 minutes.
+// WithUploadTimeout sets the timeout of the dedicated upload HTTP client while
+// keeping its tuned transport (HTTP/1.1 multi-conn). Uploads of large files (or
+// slow/degraded kDrive responses) need more headroom than the 60s read timeout.
+// Default: 2 minutes.
 func WithUploadTimeout(d time.Duration) Option {
 	return func(k *Client) {
 		if d > 0 {
-			k.uploadHTTP = &http.Client{Timeout: d}
+			k.uploadHTTP = &http.Client{
+				Timeout:   d,
+				Transport: k.uploadHTTP.Transport,
+			}
 		}
 	}
 }
@@ -93,6 +97,18 @@ func WithRetries(max int, initial time.Duration) Option {
 		}
 		if initial > 0 {
 			k.initialBackoff = initial
+		}
+	}
+}
+
+// WithUploadParallelism sets the number of concurrent chunk uploads when the
+// upload body implements io.ReaderAt. A value <= 0 keeps the default (4).
+// More goroutines open more TCP connections and aggregate more bandwidth at the
+// cost of proportionally more memory (parallelism × chunkSize per upload).
+func WithUploadParallelism(n int) Option {
+	return func(k *Client) {
+		if n > 0 {
+			k.uploadParallelism = n
 		}
 	}
 }

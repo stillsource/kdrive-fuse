@@ -10,7 +10,7 @@ Mount an [Infomaniak kDrive](https://www.infomaniak.com/en/hosting/kdrive) remot
 - LRU disk cache at `~/.cache/kdrive-fuse/{fileID}_{last_modified_at}` — invalidates automatically when the remote file changes; configurable byte budget
 - Streaming downloads with HTTP `Range`; first read fetches the body, subsequent reads are local
 - In-place edits of existing files, committed on close (see notes below)
-- Large files (> 100 MB) upload via the kDrive chunked upload-session flow (50 MB chunks, per-chunk retry, cancel-on-failure)
+- Large files (> 16 MB) upload via the kDrive chunked upload-session flow (16 MB chunks, parallel multi-connection uploads, per-chunk retry, cancel-on-failure)
 - Files and directories owned by the mounting user, so file managers can delete/edit them
 - Soft deletes — removed files stay recoverable from the kDrive trash
 - Automatic retry on transient failures (429 / 5xx / transport) with exponential backoff; uploads use a dedicated HTTP client with a longer (2 min) timeout to ride out large transfers and slow/degraded responses
@@ -59,6 +59,7 @@ export KDRIVE_CACHE_TTL_SECONDS="30"
 export KDRIVE_READONLY="1"                       # mount read-only (reject all writes with EROFS)
 export KDRIVE_LOG_FORMAT="text"                  # log format: text (default) or json (jq-friendly)
 export KDRIVE_METRICS_ADDR=":9090"               # serve Prometheus /metrics on this addr (off by default)
+export KDRIVE_UPLOAD_PARALLELISM="4"             # parallel chunk connections for files > 16 MB (default 4)
 
 kdrive-fuse
 ```
@@ -197,13 +198,13 @@ On the first push to a non-empty remote (or with `--refresh`), `kdrive sync` boo
 | List dir | ✅ | pages until exhausted |
 | Stat | ✅ | |
 | Download | ✅ | full + range stream |
-| Upload | ✅ | single-shot ≤ 100 MB, chunked session > 100 MB; retries transient failures |
+| Upload | ✅ | single-shot ≤ 16 MB, parallel chunked session > 16 MB (HTTP/1.1 multi-conn); retries transient failures |
 | Mkdir | ✅ | |
 | Delete | ✅ | soft-delete (trashable, recoverable) |
 | Rename | ✅ | |
 | Move | ✅ | |
 | Share | ✅ | get-or-create public link |
-| Chunked upload (> 100 MB) | ✅ | upload-session flow, 50 MB chunks, per-chunk retry |
+| Chunked upload (> 16 MB) | ✅ | upload-session flow, 16 MB chunks, parallel HTTP/1.1 connections, per-chunk retry |
 | Trash browsing / management | ✅ | `kdrive trash` (list/restore/purge/empty) |
 | xattrs for kDrive metadata | ❌ | roadmap |
 
