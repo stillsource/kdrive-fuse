@@ -83,6 +83,16 @@ func main() {
 		MountOptions: fuse.MountOptions{
 			Name:   "kdrive",
 			FsName: "kdrive",
+			// Bigger kernel<->daemon requests = far fewer round-trips on bulk
+			// transfers. The default MaxWrite is 128 KiB; 1 MiB is go-fuse's
+			// MAX_KERNEL_WRITE ceiling (Linux 4.20+ via CAP_MAX_PAGES). go-fuse
+			// v2.9 negotiates no writeback cache, so writes stay synchronous —
+			// larger writes are the available throughput lever (a `cp` into the
+			// mount was capped well below a direct CLI upload because each write
+			// was a separate 128 KiB round-trip). MaxReadAhead does the same for
+			// buffered downloads.
+			MaxWrite:     1 << 20,
+			MaxReadAhead: 1 << 20,
 		},
 		AttrTimeout:  &attrTTL,
 		EntryTimeout: &attrTTL,
