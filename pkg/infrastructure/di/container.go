@@ -51,6 +51,10 @@ type Config struct {
 
 	// Metrics is an optional metrics registry. nil disables metrics collection.
 	Metrics *metrics.Registry
+
+	// UploadParallelism is the number of concurrent chunk uploads for files
+	// using the upload-session flow. 0 keeps the client default (4).
+	UploadParallelism int
 }
 
 // Container builds and memoizes the infrastructure object graph from a Config.

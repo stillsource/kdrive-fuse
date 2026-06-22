@@ -13,6 +13,7 @@ import (
 	"time"
 
 	scerr "github.com/scality/go-errors"
+	"golang.org/x/sync/errgroup"
 
 	"github.com/stillsource/kdrive-fuse/pkg/domain"
 	"github.com/stillsource/kdrive-fuse/pkg/infrastructure/kdriveapi/internal/hash"
@@ -25,16 +26,18 @@ import (
 // chunkSize is the fixed per-chunk size, within the server-accepted 10–100 MB.
 // Both are vars (not const) so tests can shrink them without huge allocations.
 var (
-	uploadSessionThreshold int64 = 100 * 1024 * 1024
-	chunkSize              int64 = 50 * 1024 * 1024
+	uploadSessionThreshold int64 = 16 * 1024 * 1024
+	chunkSize              int64 = 16 * 1024 * 1024
 )
 
 // uploadSession uploads in.Body via the kDrive upload-session flow:
 // POST /upload/session/start -> POST /upload/session/{token}/chunk * N ->
 // POST /upload/session/{token}/finish. On any unrecoverable failure it
-// best-effort cancels the session (DELETE /upload/session/{token}). The body is
-// read sequentially one chunk at a time into memory (<= chunkSize), so per-chunk
-// retries replay from memory and only one chunk is resident at a time.
+// best-effort cancels the session (DELETE /upload/session/{token}).
+//
+// When the body implements io.ReaderAt, chunks are uploaded in parallel using
+// s.client.uploadParallelism goroutines (default 4). Otherwise it falls back to
+// the sequential loop so streams and other non-seekable readers still work.
 func (s *FilesService) uploadSession(ctx context.Context, in service.UploadInput) (domain.FileInfo, error) {
 	if _, err := in.Body.Seek(0, io.SeekStart); err != nil {
 		return domain.FileInfo{}, scerr.Wrap(domain.ErrServer,
@@ -50,6 +53,79 @@ func (s *FilesService) uploadSession(ctx context.Context, in service.UploadInput
 		return domain.FileInfo{}, err
 	}
 
+	ra, canParallel := in.Body.(io.ReaderAt)
+	if !canParallel {
+		return s.uploadSessionSequential(ctx, in, token, totalChunks)
+	}
+	return s.uploadSessionParallel(ctx, in, token, totalChunks, ra)
+}
+
+// uploadSessionParallel uploads chunks concurrently when the body is an
+// io.ReaderAt. Memory is bounded to parallelism × chunkSize.
+func (s *FilesService) uploadSessionParallel(
+	ctx context.Context, in service.UploadInput, token string, totalChunks int64, ra io.ReaderAt,
+) (domain.FileInfo, error) {
+	parallelism := s.client.uploadParallelism
+	if parallelism <= 0 {
+		parallelism = 4
+	}
+
+	// Pre-allocate the hash slice so workers write at distinct indices — no mutex.
+	chunkHashes := make([]string, totalChunks)
+
+	g, gCtx := errgroup.WithContext(ctx)
+	g.SetLimit(parallelism)
+
+	for n := int64(1); n <= totalChunks; n++ {
+		n := n // capture
+		offset := (n - 1) * chunkSize
+		clen := chunkSize
+		remaining := in.Size - offset
+		if remaining < clen {
+			clen = remaining
+		}
+
+		g.Go(func() error {
+			buf := make([]byte, clen)
+			if _, err := ra.ReadAt(buf, offset); err != nil {
+				return scerr.Wrap(domain.ErrServer,
+					scerr.WithDetailf("upload session: read chunk %d", n), scerr.CausedBy(err))
+			}
+			chunkHash, err := hash.XXH3Stream(bytes.NewReader(buf))
+			if err != nil {
+				return scerr.Wrap(domain.ErrServer,
+					scerr.WithDetailf("upload session: hash chunk %d", n), scerr.CausedBy(err))
+			}
+			chunkHashes[n-1] = chunkHash
+			return s.sessionChunk(gCtx, token, n, clen, chunkHash, buf)
+		})
+	}
+
+	if err := g.Wait(); err != nil {
+		s.sessionCancel(ctx, token)
+		return domain.FileInfo{}, err
+	}
+
+	// Build total_chunk_hash in chunk order from the pre-filled slice.
+	hasher := hash.NewChunkHasher()
+	for _, h := range chunkHashes {
+		hasher.Add(h)
+	}
+
+	info, err := s.sessionFinish(ctx, token, totalChunks, hasher.Sum())
+	if err != nil {
+		s.sessionCancel(ctx, token)
+		return domain.FileInfo{}, err
+	}
+	s.client.addUploaded(in.Size)
+	return info, nil
+}
+
+// uploadSessionSequential is the original sequential chunk loop, used when the
+// body is not an io.ReaderAt (e.g. a plain io.Reader wrapper).
+func (s *FilesService) uploadSessionSequential(
+	ctx context.Context, in service.UploadInput, token string, totalChunks int64,
+) (domain.FileInfo, error) {
 	hasher := hash.NewChunkHasher()
 	remaining := in.Size
 	for n := int64(1); n <= totalChunks; n++ {
@@ -82,7 +158,7 @@ func (s *FilesService) uploadSession(ctx context.Context, in service.UploadInput
 		s.sessionCancel(ctx, token)
 		return domain.FileInfo{}, err
 	}
-	s.client.addUploaded(in.Size) // count chunked uploads too (single-shot counts in Upload)
+	s.client.addUploaded(in.Size)
 	return info, nil
 }
 

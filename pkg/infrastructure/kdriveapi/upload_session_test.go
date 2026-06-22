@@ -335,8 +335,9 @@ var _ = Describe("FilesService.Upload — chunked session", func() {
 	})
 
 	It("fails fast on a non-transient chunk 4xx and cancels the session", func() {
+		// Use parallelism=1 to guarantee only 1 chunk attempt before cancel.
 		withSmallChunks(4, 4)
-		fx := newTestFixture()
+		fx := newTestFixture(WithUploadParallelism(1))
 		DeferCleanup(fx.Server.Close)
 
 		var mu sync.Mutex
@@ -364,7 +365,7 @@ var _ = Describe("FilesService.Upload — chunked session", func() {
 			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
 		})
 		Expect(err).To(MatchError(domain.ErrValidation)) // 400 -> ErrValidation, no retry
-		Expect(chunkAttempts).To(Equal(1))               // fail-fast
+		Expect(chunkAttempts).To(Equal(1))               // fail-fast: only 1 chunk attempted at parallelism=1
 		Expect(cancelled).To(BeTrue())                   // DELETE observed
 	})
 
@@ -538,5 +539,245 @@ var _ = Describe("FilesService.Upload — chunked session", func() {
 			ParentID: 7, Name: "x", Body: bytes.NewReader([]byte("0123456789")), Size: 10,
 		})
 		Expect(err).To(MatchError(domain.ErrServer))
+	})
+})
+
+// nonReaderAt wraps a []byte so it satisfies io.ReadSeeker but NOT io.ReaderAt,
+// allowing tests to exercise the sequential fallback path.
+type nonReaderAt struct{ r *bytes.Reader }
+
+func (n *nonReaderAt) Read(p []byte) (int, error) { return n.r.Read(p) }
+func (n *nonReaderAt) Seek(offset int64, whence int) (int64, error) {
+	return n.r.Seek(offset, whence)
+}
+
+var _ = Describe("FilesService.Upload — parallel chunked session", func() {
+	It("all N chunk POSTs arrive, content reassembles correctly, hash matches sequential", func() {
+		withSmallChunks(4, 4) // 4-byte chunks
+		fx := newTestFixture(WithUploadParallelism(4))
+		DeferCleanup(fx.Server.Close)
+
+		content := []byte("0123456789ab") // 12 bytes -> 3 chunks of 4
+
+		var mu sync.Mutex
+		chunks := map[int64][]byte{}
+		chunkHashes := map[int64]string{}
+		var finishBody map[string]any
+
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"token":"PSESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/PSESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			n, _ := strconv.ParseInt(r.URL.Query().Get("chunk_number"), 10, 64)
+			body := readBody(r)
+			mu.Lock()
+			chunks[n] = body
+			chunkHashes[n] = r.URL.Query().Get("chunk_hash")
+			mu.Unlock()
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/PSESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			_ = json.Unmarshal(readBody(r), &finishBody)
+			mu.Unlock()
+			writeJSON(w, http.StatusOK, `{"data":{"id":200,"name":"par.bin","size":12,"type":"file"}}`)
+		})
+
+		info, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "par.bin",
+			Body: bytes.NewReader(content),
+			Size: int64(len(content)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(info.ID).To(Equal(int64(200)))
+
+		// All 3 chunks arrived (order-independent).
+		Expect(chunks).To(HaveLen(3))
+		// Content reassembles correctly in order.
+		got := append(append(append([]byte{}, chunks[1]...), chunks[2]...), chunks[3]...)
+		Expect(got).To(Equal(content))
+
+		// Per-chunk hashes are correct.
+		for n := int64(1); n <= 3; n++ {
+			expH, _ := hash.XXH3Stream(bytes.NewReader(chunks[n]))
+			Expect(chunkHashes[n]).To(Equal(expH))
+		}
+
+		// total_chunk_hash equals what the sequential ChunkHasher would produce.
+		h := hash.NewChunkHasher()
+		for _, n := range []int64{1, 2, 3} {
+			hs, _ := hash.XXH3Stream(bytes.NewReader(chunks[n]))
+			h.Add(hs)
+		}
+		Expect(finishBody["total_chunk_hash"]).To(Equal(h.Sum()))
+	})
+
+	It("total_chunk_hash is deterministic across parallelism=1 and parallelism=4", func() {
+		withSmallChunks(4, 4)
+
+		content := []byte("abcdefghijkl") // 12 bytes, 3 chunks
+
+		runUpload := func(parallelism int) string {
+			fx := newTestFixture(WithUploadParallelism(parallelism))
+			DeferCleanup(fx.Server.Close)
+			var mu sync.Mutex
+			var got string
+			fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+				writeJSON(w, http.StatusOK, `{"data":{"token":"HSESS"}}`)
+			})
+			fx.Mux.HandleFunc("/2/drive/1234/upload/session/HSESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+				readBody(r)
+				writeJSON(w, http.StatusOK, `{}`)
+			})
+			fx.Mux.HandleFunc("/2/drive/1234/upload/session/HSESS/finish", func(w http.ResponseWriter, r *http.Request) {
+				var body map[string]any
+				_ = json.Unmarshal(readBody(r), &body)
+				mu.Lock()
+				got, _ = body["total_chunk_hash"].(string)
+				mu.Unlock()
+				writeJSON(w, http.StatusOK, `{"data":{"id":1,"name":"x","type":"file"}}`)
+			})
+			_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+				ParentID: 7, Name: "x",
+				Body: bytes.NewReader(content),
+				Size: int64(len(content)),
+			})
+			Expect(err).NotTo(HaveOccurred())
+			return got
+		}
+
+		h1 := runUpload(1)
+		h4 := runUpload(4)
+		Expect(h1).NotTo(BeEmpty())
+		Expect(h4).To(Equal(h1))
+	})
+
+	It("one chunk failing cancels the session and returns an error without calling finish", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture(WithUploadParallelism(4))
+		DeferCleanup(fx.Server.Close)
+
+		content := []byte("0123456789ab") // 12 bytes -> 3 chunks
+
+		var mu sync.Mutex
+		cancelled := false
+		finishCalled := false
+
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"token":"FSESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/FSESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			n := r.URL.Query().Get("chunk_number")
+			readBody(r)
+			if n == "2" {
+				writeJSON(w, http.StatusBadRequest, `{"error":"bad chunk"}`)
+				return
+			}
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/FSESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			mu.Lock()
+			finishCalled = true
+			mu.Unlock()
+			writeJSON(w, http.StatusOK, `{"data":{"id":99,"name":"x","type":"file"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/FSESS", func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodDelete {
+				mu.Lock()
+				cancelled = true
+				mu.Unlock()
+			}
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "x",
+			Body: bytes.NewReader(content),
+			Size: int64(len(content)),
+		})
+		Expect(err).To(HaveOccurred())
+		Expect(cancelled).To(BeTrue())     // session cancelled
+		Expect(finishCalled).To(BeFalse()) // finish NOT called
+	})
+
+	It("falls back to sequential when body is not io.ReaderAt", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture(WithUploadParallelism(4))
+		DeferCleanup(fx.Server.Close)
+
+		content := []byte("0123456789ab")
+		seqBody := &nonReaderAt{r: bytes.NewReader(content)}
+
+		var mu sync.Mutex
+		chunks := map[int64][]byte{}
+
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"token":"SSESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SSESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			n, _ := strconv.ParseInt(r.URL.Query().Get("chunk_number"), 10, 64)
+			body := readBody(r)
+			mu.Lock()
+			chunks[n] = body
+			mu.Unlock()
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/SSESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			readBody(r)
+			writeJSON(w, http.StatusOK, `{"data":{"id":300,"name":"seq.bin","type":"file"}}`)
+		})
+
+		info, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "seq.bin",
+			Body: seqBody,
+			Size: int64(len(content)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(info.ID).To(Equal(int64(300)))
+
+		// All chunks must still arrive correctly.
+		Expect(chunks).To(HaveLen(3))
+		got := append(append(append([]byte{}, chunks[1]...), chunks[2]...), chunks[3]...)
+		Expect(got).To(Equal(content))
+	})
+
+	It("per-chunk retry still works in parallel mode", func() {
+		withSmallChunks(4, 4)
+		fx := newTestFixture(WithUploadParallelism(4))
+		DeferCleanup(fx.Server.Close)
+
+		content := []byte("0123456789ab")
+
+		var mu sync.Mutex
+		attemptsByChunk := map[string]int{}
+
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/start", func(w http.ResponseWriter, r *http.Request) {
+			writeJSON(w, http.StatusOK, `{"data":{"token":"RSESS"}}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/RSESS/chunk", func(w http.ResponseWriter, r *http.Request) {
+			n := r.URL.Query().Get("chunk_number")
+			readBody(r)
+			mu.Lock()
+			attemptsByChunk[n]++
+			cnt := attemptsByChunk[n]
+			mu.Unlock()
+			if n == "1" && cnt == 1 {
+				writeJSON(w, http.StatusTooManyRequests, `{}`)
+				return
+			}
+			writeJSON(w, http.StatusOK, `{}`)
+		})
+		fx.Mux.HandleFunc("/2/drive/1234/upload/session/RSESS/finish", func(w http.ResponseWriter, r *http.Request) {
+			readBody(r)
+			writeJSON(w, http.StatusOK, `{"data":{"id":400,"name":"retry.bin","type":"file"}}`)
+		})
+
+		_, err := fx.Client.Files.Upload(context.Background(), service.UploadInput{
+			ParentID: 7, Name: "retry.bin",
+			Body: bytes.NewReader(content),
+			Size: int64(len(content)),
+		})
+		Expect(err).NotTo(HaveOccurred())
+		Expect(attemptsByChunk["1"]).To(Equal(2)) // chunk 1 retried once
 	})
 })

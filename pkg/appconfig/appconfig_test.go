@@ -130,6 +130,35 @@ var _ = Describe("KDRIVE_READONLY env", func() {
 	})
 })
 
+var _ = Describe("KDRIVE_UPLOAD_PARALLELISM env", func() {
+	ctx := context.Background()
+
+	It("defaults to 4 when unset", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN": "tok",
+			"KDRIVE_DRIVE_ID":  "123",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.UploadParallelism).To(Equal(4))
+	})
+
+	It("honors KDRIVE_UPLOAD_PARALLELISM override", func() {
+		c, err := load(ctx, envconfig.MapLookuper(map[string]string{
+			"KDRIVE_API_TOKEN":          "tok",
+			"KDRIVE_DRIVE_ID":           "123",
+			"KDRIVE_UPLOAD_PARALLELISM": "8",
+		}))
+		Expect(err).NotTo(HaveOccurred())
+		Expect(c.UploadParallelism).To(Equal(8))
+	})
+
+	It("DI propagates UploadParallelism", func() {
+		c := &Config{APIToken: "tok", DriveID: "123", UploadParallelism: 6}
+		d := c.DI(nil)
+		Expect(d.UploadParallelism).To(Equal(6))
+	})
+})
+
 var _ = Describe("KDRIVE_LOG_FORMAT env", func() {
 	ctx := context.Background()
 
